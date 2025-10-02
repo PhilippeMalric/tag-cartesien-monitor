@@ -1,1 +1,32 @@
-/* You can add global styles to this file, and also import other style files */
+@use '@angular/material' as mat;
+
+@include mat.core();
+
+/* Thème sombre vert forêt (minimal, compatible) */
+$dark-forest-theme: mat.define-theme((
+  color: (
+    theme-type: dark,
+    primary: mat.$green-palette   // palette sûre
+  ),
+  density: (scale: 0)
+));
+
+:root {
+  @include mat.all-component-themes($dark-forest-theme);
+  color-scheme: dark;
+}
+
+/* Base */
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #0f1c14;   /* fond vert forêt très sombre */
+  color: #e8f5e9;        /* texte clair */
+}
+
+/* Optionnel : cohérence avec ton sidenav */
+.sidenav {
+  background: #0f1c14;
+  color: #e8f5e9;
+}

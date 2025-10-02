@@ -1,4 +1,4 @@
-# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files
 
 # Compiled output
 /dist
@@ -31,7 +31,7 @@ yarn-error.log
 # Miscellaneous
 /.angular/cache
 .sass-cache/
-/connect.lock
+ /connect.lock
 /coverage
 /libpeerconnection.log
 testem.log
@@ -40,3 +40,12 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
+
+# ----- APP SECRETS / ENV -----
+# Ignore tout le dossier d'environnement (quel que soit l'OS)
+src/environnement/
+
+
+functions/node_modules/
+
+functions/lib/

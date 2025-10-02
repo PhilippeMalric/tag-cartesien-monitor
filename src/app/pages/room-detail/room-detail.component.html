@@ -1,0 +1,19 @@
+@if (room$ | async; as room) {
+  <h2>Room {{ room.id }}</h2>
+  <p>Statut: {{ room.status }} — Mode: {{ room.mode }}</p>
+
+  @if (room.lastEventAt) {
+    <p>Dernier évènement: {{ room.lastEventAt | date:'short' }}</p>
+  }
+
+  <h3>Joueurs</h3>
+  <ul>
+    <li *ngFor="let uid of (room.playerUids || [])">
+      {{ uid }}
+    </li>
+  </ul>
+
+  <p><a [routerLink]="['/rooms']">← Retour</a></p>
+} @else {
+  <p>Room introuvable.</p>
+}

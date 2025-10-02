@@ -18,39 +18,19 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
-            "polyfills": [
-              "zone.js"
-            ],
+            "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [
-              {
-                "glob": "**/*",
-                "input": "public"
-              }
+              { "glob": "**/*", "input": "public" }
             ],
-            "styles": [
-              "src/styles.scss"
-            ],
-            "server": "src/main.server.ts",
-            "outputMode": "server",
-            "ssr": {
-              "entry": "src/server.ts"
-            }
+            "styles": ["src/styles.scss"]
           },
           "configurations": {
             "production": {
               "budgets": [
-                {
-                  "type": "initial",
-                  "maximumWarning": "500kB",
-                  "maximumError": "1MB"
-                },
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
-                }
+                { "type": "initial", "maximumWarning": "500kB", "maximumError": "1MB" },
+                { "type": "anyComponentStyle", "maximumWarning": "4kB", "maximumError": "8kB" }
               ],
               "outputHashing": "all"
             },
@@ -65,12 +45,8 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "configurations": {
-            "production": {
-              "buildTarget": "tag-cartesien-monitor:build:production"
-            },
-            "development": {
-              "buildTarget": "tag-cartesien-monitor:build:development"
-            }
+            "production": { "buildTarget": "tag-cartesien-monitor:build:production" },
+            "development": { "buildTarget": "tag-cartesien-monitor:build:development" }
           },
           "defaultConfiguration": "development"
         },
@@ -80,21 +56,13 @@
         "test": {
           "builder": "@angular/build:karma",
           "options": {
-            "polyfills": [
-              "zone.js",
-              "zone.js/testing"
-            ],
+            "polyfills": ["zone.js", "zone.js/testing"],
             "tsConfig": "tsconfig.spec.json",
             "inlineStyleLanguage": "scss",
             "assets": [
-              {
-                "glob": "**/*",
-                "input": "public"
-              }
+              { "glob": "**/*", "input": "public" }
             ],
-            "styles": [
-              "src/styles.scss"
-            ]
+            "styles": ["src/styles.scss"]
           }
         }
       }

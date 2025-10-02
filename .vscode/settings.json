@@ -1,0 +1,25 @@
+{
+  "workbench.colorCustomizations": {
+    // Barre d’activités (tout à gauche)
+    "activityBar.background": "#0B3D2E",
+    "activityBar.foreground": "#EAF7F0",
+    "activityBar.inactiveForeground": "#8FCCB0",
+    "activityBar.border": "#0A2F24",
+    "activityBarBadge.background": "#2E7D32",
+    "activityBarBadge.foreground": "#FFFFFF",
+
+    // Barre latérale (Explorateur)
+    "sideBar.background": "#0E4636",
+    "sideBar.foreground": "#E3F2E9",
+    "sideBar.border": "#0A2F24",
+    "sideBarSectionHeader.background": "#0E4636",
+    "sideBarSectionHeader.foreground": "#C6E6D5",
+
+    // Barre d’état (bas)
+    "statusBar.background": "#093326",
+    "statusBar.foreground": "#EAF7F0",
+    "statusBar.border": "#0A2F24"
+  },
+
+  "window.titleBarStyle": "custom"
+}

@@ -1,0 +1,19 @@
+{
+"hosting": {
+    "site": "monitor-tag-cartesien",
+    "public": "dist/tag-cartesien-monitor/browser",
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  },
+"emulators": {
+  "ui": { "enabled": true },
+  "auth": { "host": "127.0.0.1", "port": 9099 },
+  "firestore": { "host": "127.0.0.1", "port": 8080 },
+  "database": { "host": "127.0.0.1", "port": 9000 },
+  "functions": { "host": "127.0.0.1", "port": 5001 },
+  "hosting": { "host": "127.0.0.1", "port": 5000 },
+  "storage": { "host": "127.0.0.1", "port": 9199 }
+},
+"functions": {
+  "source": "functions"
+}
+}

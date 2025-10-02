@@ -3,11 +3,13 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "ng serve --port 4300",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "serve:ssr:tag-cartesien-monitor": "node dist/tag-cartesien-monitor/server/server.mjs"
+    "serve:ssr:tag-cartesien-monitor": "node dist/tag-cartesien-monitor/server/server.mjs",
+    "snapshot": "node scripts/snapshot.mjs",
+    "snapshot:dated": "powershell -NoProfile -Command \"$env:OUTFILE='snapshot_{0}.txt' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'); node scripts/snapshot.mjs\""
   },
   "prettier": {
     "printWidth": 100,
@@ -23,15 +25,20 @@
   },
   "private": true,
   "dependencies": {
+    "@angular/animations": "^20.3.2",
+    "@angular/cdk": "^20.2.7",
     "@angular/common": "^20.3.0",
     "@angular/compiler": "^20.3.0",
     "@angular/core": "^20.3.0",
+    "@angular/fire": "^20.0.1",
     "@angular/forms": "^20.3.0",
+    "@angular/material": "^20.2.7",
     "@angular/platform-browser": "^20.3.0",
     "@angular/platform-server": "^20.3.0",
     "@angular/router": "^20.3.0",
     "@angular/ssr": "^20.3.1",
     "express": "^5.1.0",
+    "firebase": "^11.10.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
@@ -49,6 +56,7 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
+    "sass": "^1.93.2",
     "typescript": "~5.9.2"
   }
 }

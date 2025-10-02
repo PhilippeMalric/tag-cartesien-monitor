@@ -1,0 +1,55 @@
+/* Le thème Material global peut rester dans src/styles.scss
+   (ex.: @import '@angular/material/prebuilt-themes/indigo-pink.css';) */
+
+.layout {
+  height: 100vh;
+}
+
+.sidenav {
+  width: 250px;
+  background: #0f1c14; /* vert forêt très sombre */
+  color: #e8f5e9;
+  border-right: 1px solid rgba(255,255,255,.06);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 8px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  color: #c8e6c9;
+}
+
+mat-nav-list a.active {
+  background: rgba(76, 175, 80, 0.18); /* vert */
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar .title {
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+.spacer { flex: 1; }
+
+.page {
+  padding: 16px;
+}
+
+/* Responsive: en dessous de 960px, cache le sidenav par défaut */
+@media (max-width: 959px) {
+  .sidenav { width: 220px; }
+  .menu-btn { display: inline-flex; }
+}
+
+/* Au-dessus, on laisse ouvert par défaut */
+@media (min-width: 960px) {
+  .menu-btn { display: none; }
+}

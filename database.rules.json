@@ -1,0 +1,6 @@
+{
+"rules": {
+".read": "auth.token.admin === true",
+".write": false
+}
+}
