@@ -1,5 +1,7 @@
 <mat-sidenav-container class="layout">
 
+  
+
   <mat-sidenav class="sidenav" mode="side" [opened]="opened()">
     <div class="brand">
       <mat-icon>sports_kabaddi</mat-icon>
@@ -31,6 +33,7 @@
       <a mat-icon-button routerLink="/events" aria-label="Events">
         <mat-icon>history</mat-icon>
       </a>
+      <button (click)="addAdmin()">addAdmin</button>
     </mat-toolbar>
 
     <main class="page">

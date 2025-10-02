@@ -3039,6 +3039,7 @@ REL:  package-lock.json
         "karma-coverage": "~2.2.0",
         "karma-jasmine": "~5.1.0",
         "karma-jasmine-html-reporter": "~2.1.0",
+        "sass": "^1.93.2",
         "typescript": "~5.9.2"
       }
     },
@@ -3438,6 +3439,27 @@ REL:  package-lock.json
         "vitest": {
           "optional": true
         }
+      }
+    },
+    "node_modules/@angular/build/node_modules/sass": {
+      "version": "1.90.0",
+      "resolved": "https://registry.npmjs.org/sass/-/sass-1.90.0.tgz",
+      "integrity": "sha512-9GUyuksjw70uNpb1MTYWsH9MQHOHY6kwfnkafC24+7aOMZn9+rVMBxRbLvw756mrBFbIsFg6Xw9IkR2Fnn3k+Q==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "chokidar": "^4.0.0",
+        "immutable": "^5.0.2",
+        "source-map-js": ">=0.6.2 <2.0.0"
+      },
+      "bin": {
+        "sass": "sass.js"
+      },
+      "engines": {
+        "node": ">=14.0.0"
+      },
+      "optionalDependencies": {
+        "@parcel/watcher": "^2.4.1"
       }
     },
     "node_modules/@angular/cdk": {
@@ -12605,9 +12627,9 @@ REL:  package-lock.json
       "license": "MIT"
     },
     "node_modules/sass": {
-      "version": "1.90.0",
-      "resolved": "https://registry.npmjs.org/sass/-/sass-1.90.0.tgz",
-      "integrity": "sha512-9GUyuksjw70uNpb1MTYWsH9MQHOHY6kwfnkafC24+7aOMZn9+rVMBxRbLvw756mrBFbIsFg6Xw9IkR2Fnn3k+Q==",
+      "version": "1.93.2",
+      "resolved": "https://registry.npmjs.org/sass/-/sass-1.93.2.tgz",
+      "integrity": "sha512-t+YPtOQHpGW1QWsh1CHQ5cPIr9lbbGZLZnbihP/D/qZj/yuV68m8qarcV17nvkOX81BCrvzAlq2klCQFZghyTg==",
       "dev": true,
       "license": "MIT",
       "dependencies": {
@@ -14118,13 +14140,13 @@ REL:  package.json
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "ng serve --port 4300",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "serve:ssr:tag-cartesien-monitor": "node dist/tag-cartesien-monitor/server/server.mjs",
-     "snapshot": "node scripts/snapshot.mjs",
-    "snapshot:dated": "OUTFILE=snapshot_$(date +%Y-%m-%d_%H-%M-%S).txt node scripts/snapshot.mjs"
+    "snapshot": "node scripts/snapshot.mjs",
+    "snapshot:dated": "powershell -NoProfile -Command \"$env:OUTFILE='snapshot_{0}.txt' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'); node scripts/snapshot.mjs\""
   },
   "prettier": {
     "printWidth": 100,
@@ -14171,9 +14193,11 @@ REL:  package.json
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
+    "sass": "^1.93.2",
     "typescript": "~5.9.2"
   }
 }
+
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\README.md
@@ -14880,22 +14904,56 @@ export class ForbiddenComponent {}
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\login.component.ts
 REL:  src\app\pages\login.component.ts
 ────────────────────────────────────────────────────────────
-import { Component, inject } from '@angular/core';
-import { Auth, GoogleAuthProvider, signInWithPopup } from '@angular/fire/auth';
+import { Component, inject, signal } from '@angular/core';
+import { Auth, GoogleAuthProvider, signInWithPopup, signOut } from '@angular/fire/auth';
+import { onIdTokenChanged } from 'firebase/auth';
 
 @Component({
   selector: 'app-login',
   standalone: true,
   template: `
     <h2>Connexion</h2>
-    <button (click)="login()">Se connecter (Google)</button>
+
+    @if (!uid()) {
+      <button (click)="login()">Se connecter (Google)</button>
+    } @else {
+      <p>
+        Connecté : <strong>{{ uid() }}</strong><br>
+        Admin : <strong>{{ isAdmin() ? 'oui' : 'non' }}</strong>
+      </p>
+      <button (click)="logout()">Se déconnecter</button>
+    }
   `
 })
 export class LoginComponent {
   private auth = inject(Auth);
 
+  // état réactif
+  uid = signal<string | null>(null);
+  isAdmin = signal<boolean>(false);
+
+  constructor() {
+    // écoute les changements de session/jeton pour récupérer la claim 'admin'
+    onIdTokenChanged(this.auth, async (user) => {
+      if (!user) {
+        this.uid.set(null);
+        this.isAdmin.set(false);
+        return;
+      }
+      this.uid.set(user.uid);
+      const token = await user.getIdTokenResult();
+      this.isAdmin.set(!!token.claims['admin']);
+    });
+  }
+
   async login() {
     await signInWithPopup(this.auth, new GoogleAuthProvider());
+    // onIdTokenChanged mettra à jour uid/isAdmin automatiquement
+  }
+
+  async logout() {
+    await signOut(this.auth);
+    // onIdTokenChanged remettra uid/isAdmin à vide
   }
 }
 
@@ -15233,45 +15291,38 @@ export const reqHandler = createNodeRequestHandler(app);
 FILE: C:\Users\malri\tag-cartesien-monitor\src\styles.scss
 REL:  src\styles.scss
 ────────────────────────────────────────────────────────────
-
-// Include theming for Angular Material with `mat.theme()`.
-// This Sass mixin will define CSS variables that are used for styling Angular Material
-// components according to the Material 3 design spec.
-// Learn more about theming and how to use it for your application's
-// custom components at https://material.angular.dev/guide/theming
 @use '@angular/material' as mat;
 
-html {
-  @include mat.theme((
-    color: (
-      primary: mat.$azure-palette,
-      tertiary: mat.$blue-palette,
-    ),
-    typography: Roboto,
-    density: 0,
-  ));
+@include mat.core();
+
+/* Thème sombre vert forêt (minimal, compatible) */
+$dark-forest-theme: mat.define-theme((
+  color: (
+    theme-type: dark,
+    primary: mat.$green-palette   // palette sûre
+  ),
+  density: (scale: 0)
+));
+
+:root {
+  @include mat.all-component-themes($dark-forest-theme);
+  color-scheme: dark;
 }
 
-body {
-  // Default the application to a light color theme. This can be changed to
-  // `dark` to enable the dark color theme, or to `light dark` to defer to the
-  // user's system settings.
-  color-scheme: light;
-
-  // Set a default background, font and text colors for the application using
-  // Angular Material's system-level CSS variables. Learn more about these
-  // variables at https://material.angular.dev/guide/system-variables
-  background-color: var(--mat-sys-surface);
-  color: var(--mat-sys-on-surface);
-  font: var(--mat-sys-body-medium);
-
-  // Reset the user agent margin.
-  margin: 0;
-}
-/* You can add global styles to this file, and also import other style files */
-
+/* Base */
 html, body { height: 100%; }
-body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+body {
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #0f1c14;   /* fond vert forêt très sombre */
+  color: #e8f5e9;        /* texte clair */
+}
+
+/* Optionnel : cohérence avec ton sidenav */
+.sidenav {
+  background: #0f1c14;
+  color: #e8f5e9;
+}
 
 
 ────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgFor } from '@angular/common';
 
@@ -8,6 +8,8 @@ import { MatSidenavModule }  from '@angular/material/sidenav';
 import { MatListModule }     from '@angular/material/list';
 import { MatIconModule }     from '@angular/material/icon';
 import { MatButtonModule }   from '@angular/material/button';
+import { Database, ref, set } from '@angular/fire/database';
+
 
 type NavItem = { label: string; icon: string; link: string; exact?: boolean };
 
@@ -28,5 +30,19 @@ export class AppComponent {
     { label: 'Rooms',           icon: 'meeting_room',   link: '/rooms', exact: true },
     { label: 'Événements',      icon: 'history',        link: '/events' }
   ];
+
+  db = inject(Database);
+
+constructor() {
+    
+  }
+
   toggle() { this.opened.set(!this.opened()); }
+  addAdmin = async ()=> {
+  
+    await set(ref(this.db, 'admins/xM9xZueVKUIAFFjyqCKB6SSfUf1e'), true);
+  }
 }
+
+
+

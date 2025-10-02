@@ -13,6 +13,48 @@
     </li>
   </ul>
 
+  <!-- ====== BOTS (monitor -> RTDB) ====== -->
+  <h3>Bots (monitor → RTDB)</h3>
+  <div class="bots">
+    <button (click)="addBot()">+ Ajouter un bot</button>
+
+    <ul>
+      <li *ngFor="let b of (bots$ | async)"
+          [class.selected]="b.id === selectedBotId"
+          (click)="selectBot(b.id)">
+        <strong>{{ b.displayName || b.id }}</strong>
+        — ({{ b.x }}, {{ b.y }})
+        <span *ngIf="b.id === selectedBotId"> ← sélectionné</span>
+      </li>
+    </ul>
+
+    <div class="controls" *ngIf="selectedBotId as id">
+      <p>Contrôles pour: <code>{{ id }}</code></p>
+      <div class="pad">
+        <button (click)="step(0,-1)">↑</button>
+        <div>
+          <button (click)="step(-1,0)">←</button>
+          <button (click)="step(1,0)">→</button>
+        </div>
+        <button (click)="step(0,1)">↓</button>
+      </div>
+      <button (click)="toggleRandom()">Aléatoire ON/OFF</button>
+    </div>
+  </div>
+
+  <!-- ====== DIAGNOSTIC ====== -->
+  <h3>Diagnostic droits</h3>
+  <div class="diag">
+    <button (click)="runDiag()">▶ Rafraîchir</button>
+    <button (click)="tryWriteTest()">✍ Test écriture bots</button>
+    <ul>
+      <li><b>auth.uid</b> = {{ diag.uid }}</li>
+      <li><b>isAdminRTDB</b> = {{ diag.isAdminRTDB }}</li>
+      <li><b>roomsMeta/{{ room.id }}/ownerUid</b> = {{ diag.ownerUid }}</li>
+      <li><b>write bots</b> = {{ diag.canWriteBots }}</li>
+    </ul>
+  </div>
+
   <p><a [routerLink]="['/rooms']">← Retour</a></p>
 } @else {
   <p>Room introuvable.</p>

@@ -23,6 +23,8 @@ const shouldUseEmulators = !!environment.useEmulators && IS_LOCALHOST;
 console.log('[ENV]', environment);
 console.log('[shouldUseEmulators]', shouldUseEmulators, 'host=', IS_BROWSER ? window.location.hostname : '(ssr)');
 
+
+
 export const appConfig: ApplicationConfig = {
   providers: [
     
@@ -43,7 +45,7 @@ export const appConfig: ApplicationConfig = {
     }),
     provideDatabase(() => {
       const db = getDatabase();
-      if (shouldUseEmulators) connectDatabaseEmulator(db, '127.0.0.1', 9000);
+      //if (shouldUseEmulators) connectDatabaseEmulator(db, '127.0.0.1', 9000);
       return db;
     }),
     provideFunctions(() => {

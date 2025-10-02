@@ -3,4 +3,54 @@
   display: block;
   padding: 16px;
 }
+
 h2 { margin: 0 0 8px; }
+
+.bots {
+  margin-top: 16px;
+
+  ul {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  li {
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+
+  li.selected {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .pad {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0;
+
+    button { min-width: 36px; }
+
+    div {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+    }
+  }
+}
+
+.diag {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+
+  ul {
+    margin: 8px 0 0;
+  }
+
+  button + button {
+    margin-left: 8px;
+  }
+}

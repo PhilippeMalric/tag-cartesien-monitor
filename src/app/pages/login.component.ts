@@ -41,8 +41,17 @@ export class LoginComponent {
   }
 
   async login() {
-    await signInWithPopup(this.auth, new GoogleAuthProvider());
-    // onIdTokenChanged mettra à jour uid/isAdmin automatiquement
+    try {
+      await signInWithPopup(this.auth, new GoogleAuthProvider());
+      const u = this.auth.currentUser;
+      if (u) {
+        await u.getIdToken(true);
+        const token = await u.getIdTokenResult();
+        this.isAdmin.set(!!token.claims['admin']);
+      }
+    } catch (e) {
+      console.error('Login error', e);
+    }
   }
 
   async logout() {
