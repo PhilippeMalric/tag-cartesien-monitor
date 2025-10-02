@@ -1,0 +1,15 @@
+# Par défaut, texte en LF (unix) pour éviter les CRLF/LF flip-flops
+* text=auto eol=lf
+
+# Fichiers Windows qui doivent rester CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Images/binaire
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
