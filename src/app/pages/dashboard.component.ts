@@ -22,7 +22,7 @@ import { MonitorService } from '../services/monitor.service';
         <ul>
           <li *ngFor="let r of (rooms$ | async)">
             <a [routerLink]="['/room', r['id']]">{{ r['id'] }}</a>
-            — {{ r['status'] }} — {{ r['mode'] }}
+            — {{ r['state'] }} — {{ r['mode'] }}
             @if (r['lastEventAt']) {
               — maj: {{ r['lastEventAt'] | date:'short' }}
             }
