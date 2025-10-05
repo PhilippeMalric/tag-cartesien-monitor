@@ -1,0 +1,56 @@
+<mat-card class="login-card" appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>
+      <span class="meta">
+        <mat-icon aria-hidden="true">login</mat-icon>
+        Connexion
+      </span>
+    </mat-card-title>
+    <mat-card-subtitle>
+      Utilise Google pour te connecter et lire la claim <code>admin</code>.
+    </mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+    @if (!uid()) {
+      <div class="row" style="margin-top:12px">
+        <button mat-raised-button color="primary" (click)="login()">
+          <mat-icon>account_circle</mat-icon>
+          Se connecter (Google)
+        </button>
+      </div>
+    } @else {
+      <div class="row" style="margin-top:12px">
+        <mat-chip-set>
+          <mat-chip color="primary" [highlighted]="true" disableRipple>
+            UID: <span class="uid" style="margin-left:6px">{{ uid() }}</span>
+          </mat-chip>
+          <mat-chip [color]="isAdmin() ? 'primary' : undefined" [highlighted]="isAdmin()">
+            Admin: <strong style="margin-left:6px">{{ isAdmin() ? 'oui' : 'non' }}</strong>
+          </mat-chip>
+        </mat-chip-set>
+
+        <span class="grow"></span>
+
+        <button mat-stroked-button (click)="copyUid()" matTooltip="Copier l'UID">
+          <mat-icon>content_copy</mat-icon>
+          Copier l’UID
+        </button>
+        <button mat-button color="warn" (click)="logout()">
+          <mat-icon>logout</mat-icon>
+          Se déconnecter
+        </button>
+      </div>
+
+      <mat-divider style="margin:12px 0"></mat-divider>
+
+      @let u = uid();
+      @if (u) {
+        <div class="row">
+          <mat-icon>fingerprint</mat-icon>
+          UID court : <code>{{ shortUid(u) }}</code>
+        </div>
+      }
+    }
+  </mat-card-content>
+</mat-card>

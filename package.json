@@ -10,7 +10,7 @@
     "serve:ssr:tag-cartesien-monitor": "node dist/tag-cartesien-monitor/server/server.mjs",
     "snapshot": "node scripts/snapshot.mjs",
     "snapshot:dated": "powershell -NoProfile -Command \"$env:OUTFILE='snapshot_{0}.txt' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'); node scripts/snapshot.mjs\"",
-    "admin":"node scripts/rtdb-admin.mjs add-admin --uid QVxpSixS7gJ6sNfEouFcEC1KsaMy --dbNamespace tag-cartesien-default-rtdb"
+    "admin": "node scripts/rtdb-admin.mjs add-admin --uid QVxpSixS7gJ6sNfEouFcEC1KsaMy --dbNamespace tag-cartesien-default-rtdb"
   },
   "prettier": {
     "printWidth": 100,

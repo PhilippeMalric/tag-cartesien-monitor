@@ -15390,7 +15390,8 @@ REL:  package.json
     "test": "ng test",
     "serve:ssr:tag-cartesien-monitor": "node dist/tag-cartesien-monitor/server/server.mjs",
     "snapshot": "node scripts/snapshot.mjs",
-    "snapshot:dated": "powershell -NoProfile -Command \"$env:OUTFILE='snapshot_{0}.txt' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'); node scripts/snapshot.mjs\""
+    "snapshot:dated": "powershell -NoProfile -Command \"$env:OUTFILE='snapshot_{0}.txt' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'); node scripts/snapshot.mjs\"",
+    "admin": "node scripts/rtdb-admin.mjs add-admin --uid QVxpSixS7gJ6sNfEouFcEC1KsaMy --dbNamespace tag-cartesien-default-rtdb"
   },
   "prettier": {
     "printWidth": 100,
@@ -15442,7 +15443,6 @@ REL:  package.json
     "typescript": "~5.9.2"
   }
 }
-
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\README.md
@@ -15892,7 +15892,7 @@ FILE: C:\Users\malri\tag-cartesien-monitor\src\app\app.component.ts
 REL:  src\app\app.component.ts
 ────────────────────────────────────────────────────────────
 import { Component, inject, signal } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgFor } from '@angular/common';
 
 // Material
@@ -15901,8 +15901,14 @@ import { MatSidenavModule }  from '@angular/material/sidenav';
 import { MatListModule }     from '@angular/material/list';
 import { MatIconModule }     from '@angular/material/icon';
 import { MatButtonModule }   from '@angular/material/button';
-import { Database, ref, set } from '@angular/fire/database';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule }     from '@angular/material/input';
+import { MatDividerModule }   from '@angular/material/divider';
 
+import { Database, ref, serverTimestamp, set } from '@angular/fire/database';
+import { FormsModule } from '@angular/forms';
+import { doc } from 'firebase/firestore';
+import { Firestore, setDoc } from '@angular/fire/firestore';
 
 type NavItem = { label: string; icon: string; link: string; exact?: boolean };
 
@@ -15911,34 +15917,44 @@ type NavItem = { label: string; icon: string; link: string; exact?: boolean };
   selector: 'app-root',
   imports: [
     RouterOutlet, RouterLink, RouterLinkActive, NgFor,
-    MatToolbarModule, MatSidenavModule, MatListModule, MatIconModule, MatButtonModule
+    MatToolbarModule, MatSidenavModule, MatListModule, MatIconModule, MatButtonModule,
+    MatFormFieldModule, MatInputModule, MatDividerModule,FormsModule
   ],
   templateUrl: './app.html',
-  styleUrl: './app.scss'
+  styleUrls: ['./app.scss']
 })
 export class AppComponent {
+  // état UI
   opened = signal(true);
+
+  // navigation latérale
   nav: NavItem[] = [
     { label: 'Tableau de bord', icon: 'dashboard',      link: '/dashboard' },
     { label: 'Rooms',           icon: 'meeting_room',   link: '/rooms', exact: true },
-    { label: 'Événements',      icon: 'history',        link: '/events' }
+    { label: 'Événements',      icon: 'history',        link: '/events' },
+    { label: 'Simulation',      icon: 'smart_toy',      link: '/simulate', exact: true }, // 👈 ajouté
   ];
 
+  // injections
+  private router = inject(Router);
   db = inject(Database);
+  fs = inject(Firestore);
 
-constructor() {
-    
+
+
+  toggle() { this.opened.update(v => !v); }
+
+  // Accès direct au simulateur: /simulate ou /simulate/:id
+  goSim(id?: string) {
+    const trimmed = (id ?? '').trim();
+    this.router.navigate(trimmed ? ['/simulate', trimmed] : ['/simulate']);
   }
 
-  toggle() { this.opened.set(!this.opened()); }
-  addAdmin = async ()=> {
-  
+  // utilitaire admin (existant)
+  addAdmin = async () => {
     await set(ref(this.db, 'admins/xM9xZueVKUIAFFjyqCKB6SSfUf1e'), true);
-  }
+  };
 }
-
-
-
 
 
 ────────────────────────────────────────────────────────────
@@ -15959,7 +15975,7 @@ REL:  src\app\app.config.ts
 ────────────────────────────────────────────────────────────
 
 // Firebase
-import { initializeApp } from 'firebase/app';
+import { FirebaseApp, initializeApp } from 'firebase/app';
 import { provideFirebaseApp } from '@angular/fire/app';
 import { provideAuth, getAuth, connectAuthEmulator } from '@angular/fire/auth';
 import { provideFirestore, getFirestore, connectFirestoreEmulator } from '@angular/fire/firestore';
@@ -15983,6 +15999,7 @@ console.log('[ENV]', environment);
 console.log('[shouldUseEmulators]', shouldUseEmulators, 'host=', IS_BROWSER ? window.location.hostname : '(ssr)');
 
 
+let theApp: FirebaseApp;
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -15991,15 +16008,32 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptorsFromDi()),
     provideClientHydration(),
     provideAnimations(),
-    provideFirebaseApp(() => initializeApp(environment.firebase)),
+    provideFirebaseApp(() => {
+      // ⚠️ projectId doit matcher celui de ton émulateur
+      theApp = initializeApp({
+        ...environment.firebase,
+        // databaseURL doit rester l’URL firebaseio.com (pas l’émulateur)
+      });
+      console.log('[FB] app initialized', theApp.options);
+      return theApp;
+    }),
     provideAuth(() => {
       const auth = getAuth();
-      if (shouldUseEmulators) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+      if (shouldUseEmulators) {
+        connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+        console.log('[Auth] emulator @ 127.0.0.1:9099');
+      }
+
       return auth;
     }),
-    provideFirestore(() => {
-      const fs = getFirestore();
-      if (shouldUseEmulators) connectFirestoreEmulator(fs, '127.0.0.1', 8080);
+    // 3) Firestore
+     provideFirestore(() => {
+      const fs = getFirestore(theApp);
+      if (shouldUseEmulators) {
+        // Essayez 'localhost' si 127.0.0.1 pose souci
+        connectFirestoreEmulator(fs, '127.0.0.1', 8080);
+        console.log('[Firestore] emulator 127.0.0.1:8080');
+      }
       return fs;
     }),
     provideDatabase(() => {
@@ -16007,11 +16041,7 @@ export const appConfig: ApplicationConfig = {
       //if (shouldUseEmulators) connectDatabaseEmulator(db, '127.0.0.1', 9000);
       return db;
     }),
-    provideFunctions(() => {
-      const fns = getFunctions(undefined, 'us-central1');
-      if (shouldUseEmulators) connectFunctionsEmulator(fns, '127.0.0.1', 5001);
-      return fns;
-    }),
+  
     provideStorage(() => {
       const st = getStorage();
       if (shouldUseEmulators) connectStorageEmulator(st, '127.0.0.1', 9199);
@@ -16025,49 +16055,117 @@ export const appConfig: ApplicationConfig = {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\app.html
 REL:  src\app\app.html
 ────────────────────────────────────────────────────────────
-<mat-sidenav-container class="layout">
+<mat-sidenav-container class="layout" autosize>
+  <!-- Side nav -->
+  <mat-sidenav
+    #drawer
+    class="sidenav"
+    mode="side"
+    [opened]="opened()"
+    (openedChange)="opened.set($event)"
+    (backdropClick)="opened.set(false)"
+    role="navigation"
+    aria-label="Menu principal">
 
-  
+    <!-- En-tête du menu -->
+    <mat-toolbar class="sidenav-toolbar" color="primary">
+      <div class="brand">
+        <mat-icon aria-hidden="true">sports_kabaddi</mat-icon>
+        <span>Tag Monitor</span>
+      </div>
+      <span class="spacer"></span>
+      <!-- bouton fermer/ouvrir -->
+      <button mat-icon-button (click)="toggle()" aria-label="Fermer le menu">
+        <mat-icon>close</mat-icon>
+      </button>
+    </mat-toolbar>
 
-  <mat-sidenav class="sidenav" mode="side" [opened]="opened()">
-    <div class="brand">
-      <mat-icon>sports_kabaddi</mat-icon>
-      <span>Tag Monitor</span>
-    </div>
-
+    <!-- Navigation -->
     <mat-nav-list>
+      <h3 matSubheader>Navigation</h3>
+
       <a mat-list-item
          *ngFor="let item of nav"
          [routerLink]="item.link"
-         [routerLinkActive]="'active'"
-         [routerLinkActiveOptions]="{ exact: item.exact ?? false }">
+         routerLinkActive="active"
+         [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
+         [attr.aria-current]="(item.exact ? 'page' : null)">
         <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
         <div matListItemTitle>{{ item.label }}</div>
       </a>
+
+      <!-- Section Simulation -->
+      <mat-divider></mat-divider>
+      <h3 matSubheader>Simulation</h3>
+
+      <a mat-list-item
+         [routerLink]="'/simulate'"
+         routerLinkActive="active"
+         [routerLinkActiveOptions]="{ exact: true }"
+         matTooltip="Ouvrir le simulateur">
+        <mat-icon matListItemIcon>smart_toy</mat-icon>
+        <div matListItemTitle>Ouvrir le simulateur</div>
+        <div matListItemLine class="muted">Créer des bots, tester les TAGs</div>
+      </a>
+
+      <!-- Accès direct à une room -->
+      <div class="sim-quick">
+        <mat-form-field appearance="outline" class="sim-field" subscriptSizing="dynamic">
+          <mat-label>Room ID</mat-label>
+          <input
+            #simRoomId
+            matInput
+            placeholder="ex: DEMO-123"
+            (keyup.enter)="goSim(simRoomId.value)" />
+          <button
+            mat-icon-button
+            matSuffix
+            type="button"
+            aria-label="Ouvrir la room"
+            (click)="goSim(simRoomId.value)"
+            matTooltip="Aller à /simulate/:id">
+            <mat-icon>arrow_outward</mat-icon>
+          </button>
+          <mat-hint>Entrer un identifiant de room</mat-hint>
+        </mat-form-field>
+
+        <button
+          mat-stroked-button
+          type="button"
+          class="sim-btn"
+          (click)="goSim(simRoomId.value)">
+          Ouvrir
+        </button>
+      </div>
     </mat-nav-list>
   </mat-sidenav>
 
+  <!-- Content -->
   <mat-sidenav-content class="content">
     <mat-toolbar color="primary" class="topbar">
+      <!-- bouton ouvrir/fermer -->
       <button mat-icon-button (click)="toggle()" class="menu-btn" aria-label="Menu">
         <mat-icon>menu</mat-icon>
       </button>
+
       <span class="title">Tag Cartésien — Monitoring</span>
       <span class="spacer"></span>
+
       <a mat-icon-button routerLink="/rooms" aria-label="Rooms">
         <mat-icon>meeting_room</mat-icon>
       </a>
       <a mat-icon-button routerLink="/events" aria-label="Events">
         <mat-icon>history</mat-icon>
       </a>
-      <button (click)="addAdmin()">addAdmin</button>
+      <a mat-icon-button routerLink="/simulate" aria-label="Simulation">
+        <mat-icon>smart_toy</mat-icon>
+      </a>
     </mat-toolbar>
 
     <main class="page">
-      <router-outlet />
+      <router-outlet></router-outlet>
     </main>
   </mat-sidenav-content>
-
 </mat-sidenav-container>
 
 
@@ -16080,6 +16178,7 @@ import { adminGuard } from './guards/admin.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'rooms', pathMatch: 'full' },
+
   {
     path: 'rooms',
     loadComponent: () => import('./pages/rooms.component').then(m => m.RoomsComponent),
@@ -16092,7 +16191,7 @@ export const routes: Routes = [
   },
   {
     path: 'events',
-    loadComponent: () => import('./pages/events.component').then(m => m.EventsComponent),
+    loadComponent: () => import('./pages/events/events.component').then(m => m.EventsComponent),
     canActivate: [adminGuard]
   },
   {
@@ -16100,9 +16199,24 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/dashboard.component').then(m => m.DashboardComponent),
     canActivate: [adminGuard]
   },
+
+  // 👇 Ajout du simulateur (lazy)
+  {
+    path: 'simulate',
+    loadComponent: () =>
+      import('./sim/simulator/match-simulator.component').then(m => m.MatchSimulatorComponent),
+    canActivate: [adminGuard]
+  },
+  {
+    path: 'simulate/:id',
+    loadComponent: () =>
+      import('./sim/simulator/match-simulator.component').then(m => m.MatchSimulatorComponent),
+    canActivate: [adminGuard]
+  },
+
   {
     path: 'login',
-    loadComponent: () => import('./pages/login.component').then(m => m.LoginComponent),
+    loadComponent: () => import('./pages/login/login.component').then(m => m.LoginComponent),
   },
   {
     path: 'forbidden',
@@ -16171,6 +16285,37 @@ mat-nav-list a.active {
 @media (min-width: 960px) {
   .menu-btn { display: none; }
 }
+
+.sim-quick {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 16px 16px;
+}
+.sim-field { flex: 1 1 auto; min-width: 140px; }
+.sim-btn { white-space: nowrap; }
+.sidenav-toolbar {
+  display: flex;
+  align-items: center;
+  padding-inline: 8px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.spacer { flex: 1 1 auto; }
+
+.sim-quick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 16px;
+}
+.sim-field { flex: 1 1 auto; min-width: 160px; }
+.sim-btn { white-space: nowrap; }
+.muted { opacity: .75; font-size: .9em; }
 
 
 ────────────────────────────────────────────────────────────
@@ -16246,19 +16391,35 @@ export type EventItem = {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\models\room.model.ts
 REL:  src\app\models\room.model.ts
 ────────────────────────────────────────────────────────────
+// Modèle MONITOR (pas celui du jeu)
 export type GameMode = 'classic' | 'transmission' | 'infection';
-export type RoomState = 'idle' | 'running' | 'ended';
+
+export type RoomState = 'idle' | 'running' | 'in-progress' | 'ended';
 
 export interface RoomDoc {
-  status: RoomState;
+  id?: string;
+  ownerUid: string;
+  state: RoomState;
   mode: GameMode;
-  playerUids?: string[];
-  hunterUids?: string[];
-  roles?: Record<string, 'hunter'|'runner'>;
-  lastEventAt?: any;         // Timestamp on backend
-  roundEndAtMs?: number;
-  timeLimit?: number;
+  targetScore?: number;   // utilisé pour classic
+  timeLimit?: number;     // optionnel (secondes)
+  players?: number;
+  createdAt?: any;
+  updatedAt?: any;
+  roles:any[];
+  roundEndAtMs?:any
+  hunterUid?:string;
+  name?: string;
+  lastEventAt?: any;  // Timestamp
 }
+
+export type RoomVM = RoomDoc & {
+  id: string;
+  /** lastEventAt converti en Date (pour |date) */
+  lastEventAt?: Date | null;
+  /** uids dérivés pour l’affichage */
+    uids: string[];
+};
 
 
 ────────────────────────────────────────────────────────────
@@ -16301,7 +16462,7 @@ import { MonitorService } from '../services/monitor.service';
         <ul>
           <li *ngFor="let r of (rooms$ | async)">
             <a [routerLink]="['/room', r['id']]">{{ r['id'] }}</a>
-            — {{ r['status'] }} — {{ r['mode'] }}
+            — {{ r['state'] }} — {{ r['mode'] }}
             @if (r['lastEventAt']) {
               — maj: {{ r['lastEventAt'] | date:'short' }}
             }
@@ -16318,28 +16479,79 @@ export class DashboardComponent {
 
 
 ────────────────────────────────────────────────────────────
-FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events.component.ts
-REL:  src\app\pages\events.component.ts
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events\events.component.html
+REL:  src\app\pages\events\events.component.html
+────────────────────────────────────────────────────────────
+<h2>Derniers événements</h2>
+@let events = (events$ | async) ?? [];
+  
+@if (events.length === 0) {
+  <p class="muted">Aucun événement pour le moment.</p>
+} 
+
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events\events.component.scss
+REL:  src\app\pages\events\events.component.scss
+────────────────────────────────────────────────────────────
+h2 {
+  margin: 0 0 .75rem;
+}
+
+.muted {
+  opacity: .7;
+}
+
+ul.events {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+
+  li {
+    padding: .35rem 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+
+    time {
+      font-variant-numeric: tabular-nums;
+      opacity: .8;
+      min-width: 9ch; /* rendu plus stable */
+    }
+
+    .arrow {
+      font-weight: 500;
+    }
+
+    .coords {
+      opacity: .85;
+    }
+
+    .room {
+      opacity: .65;
+    }
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events\events.component.ts
+REL:  src\app\pages\events\events.component.ts
 ────────────────────────────────────────────────────────────
 import { Component, inject } from '@angular/core';
-import { AsyncPipe, NgFor } from '@angular/common';
-import { MonitorService } from '../services/monitor.service';
+import { AsyncPipe, DatePipe } from '@angular/common';
+import { MonitorService } from '../../services/monitor.service';
 
 @Component({
-  selector: 'app-events',
   standalone: true,
-  imports: [AsyncPipe, NgFor],
-  template: `
-    <h2>Events</h2>
-    <ul>
-      <li *ngFor="let e of (events$ | async)">
-        {{ e.type }} — {{ e.roomId }} — {{ e.ts?.toDate?.() || e.ts }}
-      </li>
-    </ul>
-  `
+  selector: 'app-events',
+  imports: [AsyncPipe, DatePipe],
+  templateUrl: './events.component.html',
+  styleUrls: ['./events.component.scss'],
 })
 export class EventsComponent {
-  events$ = inject(MonitorService).latestEvents$;
+  readonly events$ = inject(MonitorService).latestEvents$;
 }
 
 
@@ -16358,69 +16570,565 @@ export class ForbiddenComponent {}
 
 
 ────────────────────────────────────────────────────────────
-FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\login.component.ts
-REL:  src\app\pages\login.component.ts
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\login\login.component.css
+REL:  src\app\pages\login\login.component.css
 ────────────────────────────────────────────────────────────
-import { Component, inject, signal } from '@angular/core';
-import { Auth, GoogleAuthProvider, signInWithPopup, signOut } from '@angular/fire/auth';
-import { onIdTokenChanged } from 'firebase/auth';
+/* ===========
+   Thème & tokens
+   =========== */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+
+  --bg: #f7f9fc;
+  --text: #0f1220;
+  --muted: #5b6474;
+  --panel: #ffffff;
+  --border: #e6eaf2;
+
+  --code-bg: #eef2fb;
+  --code-text: #16223a;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --text: #e8eef9;
+  --muted: #aab2c0;
+  --panel: #171a21;
+  --border: #232a36;
+
+  --code-bg: #1b2230;
+  --code-text: #d9e6ff;
+}
+
+/* Respecte les préférences système si tu n’utilises pas data-theme */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --text: #e8eef9;
+    --muted: #aab2c0;
+    --panel: #171a21;
+    --border: #232a36;
+
+    --code-bg: #1b2230;
+    --code-text: #d9e6ff;
+  }
+}
+
+/* ===========
+   Base
+   =========== */
+:host {
+  display: block;
+  padding: var(--space-4);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+h2 {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+}
+
+/* ===========
+   Carte Material
+   =========== */
+.login-card {
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+mat-card-subtitle {
+  color: var(--muted);
+}
+
+/* ===========
+   Layouts utilitaires
+   =========== */
+.row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.grow { flex: 1 1 auto; }
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ===========
+   Boutons / Chips
+   =========== */
+button[mat-button],
+button[mat-raised-button],
+button[mat-stroked-button] {
+  border-radius: var(--radius-sm);
+}
+
+mat-chip {
+  border-radius: 999px !important;
+}
+
+/* ===========
+   Code & UID
+   =========== */
+code {
+  background: var(--code-bg);
+  color: var(--code-text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.uid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.2px;
+  user-select: all;
+}
+
+/* ===========
+   Petites améliorations d’accessibilité
+   =========== */
+button[mat-button]:focus-visible,
+button[mat-raised-button]:focus-visible,
+button[mat-stroked-button]:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ===========
+   Responsif
+   =========== */
+@media (max-width: 640px) {
+  :host { padding: var(--space-2); }
+  .login-card { margin: 0 var(--space-1); }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\login\login.component.html
+REL:  src\app\pages\login\login.component.html
+────────────────────────────────────────────────────────────
+<mat-card class="login-card" appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>
+      <span class="meta">
+        <mat-icon aria-hidden="true">login</mat-icon>
+        Connexion
+      </span>
+    </mat-card-title>
+    <mat-card-subtitle>
+      Utilise Google pour te connecter et lire la claim <code>admin</code>.
+    </mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+    @if (!uid()) {
+      <div class="row" style="margin-top:12px">
+        <button mat-raised-button color="primary" (click)="login()">
+          <mat-icon>account_circle</mat-icon>
+          Se connecter (Google)
+        </button>
+      </div>
+    } @else {
+      <div class="row" style="margin-top:12px">
+        <mat-chip-set>
+          <mat-chip color="primary" [highlighted]="true" disableRipple>
+            UID: <span class="uid" style="margin-left:6px">{{ uid() }}</span>
+          </mat-chip>
+          <mat-chip [color]="isAdmin() ? 'primary' : undefined" [highlighted]="isAdmin()">
+            Admin: <strong style="margin-left:6px">{{ isAdmin() ? 'oui' : 'non' }}</strong>
+          </mat-chip>
+        </mat-chip-set>
+
+        <span class="grow"></span>
+
+        <button mat-stroked-button (click)="copyUid()" matTooltip="Copier l'UID">
+          <mat-icon>content_copy</mat-icon>
+          Copier l’UID
+        </button>
+        <button mat-button color="warn" (click)="logout()">
+          <mat-icon>logout</mat-icon>
+          Se déconnecter
+        </button>
+      </div>
+
+      <mat-divider style="margin:12px 0"></mat-divider>
+
+      @let u = uid();
+      @if (u) {
+        <div class="row">
+          <mat-icon>fingerprint</mat-icon>
+          UID court : <code>{{ shortUid(u) }}</code>
+        </div>
+      }
+    }
+  </mat-card-content>
+</mat-card>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\login\login.component.ts
+REL:  src\app\pages\login\login.component.ts
+────────────────────────────────────────────────────────────
+import { Component, inject } from '@angular/core';
+import { AsyncPipe } from '@angular/common';
+import { MatCardModule } from '@angular/material/card';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { AuthService } from '../../services/auth.service';
+
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  template: `
-    <h2>Connexion</h2>
-
-    @if (!uid()) {
-      <button (click)="login()">Se connecter (Google)</button>
-    } @else {
-      <p>
-        Connecté : <strong>{{ uid() }}</strong><br>
-        Admin : <strong>{{ isAdmin() ? 'oui' : 'non' }}</strong>
-      </p>
-      <button (click)="logout()">Se déconnecter</button>
-    }
-  `
+  imports: [
+    // Material
+    MatCardModule, MatButtonModule, MatIconModule,
+    MatChipsModule, MatDividerModule, MatTooltipModule, MatSnackBarModule
+  ],
+  templateUrl: './login.component.html',
+  styleUrls: ['./login.component.css']
 })
 export class LoginComponent {
-  private auth = inject(Auth);
+  private snack = inject(MatSnackBar);
+  private authSvc = inject(AuthService);
 
-  // état réactif
-  uid = signal<string | null>(null);
-  isAdmin = signal<boolean>(false);
+  uid = this.authSvc.uid;
+  isAdmin = this.authSvc.isAdmin;
 
-  constructor() {
-    // écoute les changements de session/jeton pour récupérer la claim 'admin'
-    onIdTokenChanged(this.auth, async (user) => {
-      if (!user) {
-        this.uid.set(null);
-        this.isAdmin.set(false);
-        return;
-      }
-      this.uid.set(user.uid);
-      const token = await user.getIdTokenResult();
-      this.isAdmin.set(!!token.claims['admin']);
-    });
+  shortUid(uid: string | null): string {
+    return uid && uid.length > 6 ? uid.slice(0, 6) : (uid ?? '—');
   }
 
-  async login() {
-    try {
-      await signInWithPopup(this.auth, new GoogleAuthProvider());
-      const u = this.auth.currentUser;
-      if (u) {
-        await u.getIdToken(true);
-        const token = await u.getIdTokenResult();
-        this.isAdmin.set(!!token.claims['admin']);
-      }
-    } catch (e) {
-      console.error('Login error', e);
+  async login()  { await this.authSvc.loginWithGoogle(); }
+  async logout() { await this.authSvc.logout(); }
+
+  async copyUid() {
+    const u = this.uid();
+    if (!u) return;
+    await navigator.clipboard.writeText(u);
+    this.snack.open('UID copié dans le presse-papiers', 'OK', { duration: 2000 });
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\play.models.ts
+REL:  src\app\pages\room-detail\play.models.ts
+────────────────────────────────────────────────────────────
+// Position de base (x, y)
+export type Pos = { x: number; y: number };
+
+/** Position d'un autre joueur, avec données d'anneau (invulnérabilité / cooldown chasseur) */
+export type OtherPos = Pos & {
+  /** Deadline epoch (ms) pour dessiner l’anneau */
+  iFrameUntilMs?: number;
+  /** (Optionnel) Type d’anneau pour styler différemment si besoin */
+  ringKind?: 'victim' | 'hunter';
+};
+
+export type TagEvent = {
+  id?: string;
+  type: 'tag';
+  hunterUid: string;
+  victimUid: string;
+  x?: number;
+  y?: number;
+  ts?: any;
+};
+
+export type MyPlayerDoc = {
+  role?: 'chasseur' | 'chassé' | null;
+  score?: number;
+  iFrameUntilMs?: number;
+  spawn?: { x: number; y: number };
+
+  // Cooldown / retag control
+  cantTagUntilMs?: number;
+  noRetagUid?: string;
+  noRetagUntilMs?: number;
+};
+
+export const GAME_CONSTANTS = {
+  TAG_RADIUS: 5,                 // rayon de tag
+  TAG_COOLDOWN_MS: 5000,
+  INVULN_MS: 1000,
+  RESPAWN_BOUNDS: { minX: -45, maxX: 45, minY: -45, maxY: 45, minDistFromHunter: 12 },
+
+  // Déplacements par pas
+  MOVE_COOLDOWN_MS_CHASSEUR: 100, // (ms)
+  MOVE_COOLDOWN_MS_CHASSE: 150,   // (ms)
+  STEP_UNITS_CHASSEUR: 6,
+  STEP_UNITS_CHASSE: 5,
+} as const;
+
+export interface RenderState {
+  me: { x: number; y: number };
+  role: 'chasseur' | 'chassé' | null;
+  /** Autres joueurs : accepte l’anneau via iFrameUntilMs */
+  others: Map<string, OtherPos>;
+  tagRadius: number;
+  /** Deadline perf.now() (ms) pour l’anneau du joueur local */
+  invulnerableUntil: number;
+  hunterUid: string | null;
+  /** (Optionnel) feedback local temporaire, si tu le conserves */
+  hunterIFrameUntilMs?: number;
+}
+
+export const PLAY_COLORS = {
+  self: '#3fa7ff',    // toi-même
+  other: '#9aa0a6',   // autres joueurs (neutres)
+  hunter: '#ff7a00',  // chasseur
+  victim: '#34a853',  // chassé
+};
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\play.renderer.ts
+REL:  src\app\pages\room-detail\play.renderer.ts
+────────────────────────────────────────────────────────────
+// src/app/pages/play/play.renderer.ts
+
+import { RenderState } from "./play.models";
+
+
+export class PlayRenderer {
+ public draw = (target: HTMLCanvasElement | CanvasRenderingContext2D, state: any)=> {
+    // --- Normalisation target → canvas + ctx
+    let canvas: HTMLCanvasElement;
+    let ctx: CanvasRenderingContext2D | null = null;
+
+    if (typeof (target as any).getContext === 'function') {
+      canvas = target as HTMLCanvasElement;
+      ctx = canvas.getContext('2d');
+    } else {
+      ctx = target as CanvasRenderingContext2D;
+      canvas = ctx.canvas;
     }
-  }
+    if (!ctx) return;
 
-  async logout() {
-    await signOut(this.auth);
-    // onIdTokenChanged remettra uid/isAdmin à vide
-  }
+    // --- Constantes UI
+    const INVULN_DEFAULT_MS = 1000;
+    const RING_OUTER = 14;
+    const RING_INNER = 10;
+    const RING_WIDTH = RING_OUTER - RING_INNER;
+
+    // --- Helpers
+    const epochToPerfDeadline = (deadlineEpochMs: number) =>
+      performance.now() + Math.max(0, deadlineEpochMs - Date.now());
+
+    const roleIsHunter = (r: any) => {
+      const s = String(r ?? '').toLowerCase();
+      return s === 'chasseur' || s === 'hunter';
+    };
+
+    // --- DPR + taille responsive
+    const dpr = Math.max(1, Math.floor((globalThis as any).devicePixelRatio || 1));
+    const rect = canvas.getBoundingClientRect();
+    const W = Math.round(rect.width * dpr);
+    const H = Math.round(rect.height * dpr);
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W; canvas.height = H;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = rect.width, h = rect.height;
+
+    // --- Couleurs via CSS vars
+    const css = getComputedStyle(document.documentElement);
+    const colorGrid       = css.getPropertyValue('--grid').trim()         || '#202124';
+    const colorAxis       = css.getPropertyValue('--axis').trim()         || '#f0f1f3';
+    const colorAxisStrong = css.getPropertyValue('--axis-strong').trim()  || colorAxis;
+    const colorTick       = css.getPropertyValue('--tick').trim()         || '#ffffff';
+    const labelStroke     = css.getPropertyValue('--label-stroke').trim() || 'rgba(0,0,0,0.65)';
+    const colorSelf       = css.getPropertyValue('--self').trim()         || '#1976d2';
+    const colorOther      = css.getPropertyValue('--other').trim()        || '#9aa0a6';
+    const colorHunter     = css.getPropertyValue('--hunter').trim()       || '#ff7a00';
+    const colorRing       = css.getPropertyValue('--tag-ring').trim()     || 'rgba(211,47,47,.35)';
+    const invColRing      = css.getPropertyValue('--invuln-ring').trim()  || 'rgba(63,167,255,.85)';
+    const invColFill      = css.getPropertyValue('--invuln-fill').trim()  || 'rgba(63,167,255,.15)';
+    const invColText      = css.getPropertyValue('--invuln-text').trim()  || '#ffffff';
+
+    ctx.clearRect(0, 0, w, h);
+
+    // --- Espace (-50..50), échelle et centre
+    const scale = Math.min(w, h) / 120;
+    const cx = w / 2, cy = h / 2;
+
+    // --- Grille
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = colorGrid;
+    ctx.lineWidth = 1;
+    for (let i = -50; i <= 50; i += 10) {
+      const X = cx + i * scale;
+      const Y = cy - i * scale;
+      ctx.beginPath(); ctx.moveTo(cx - 50 * scale, Y); ctx.lineTo(cx + 50 * scale, Y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X, cy - 50 * scale); ctx.lineTo(X, cy + 50 * scale); ctx.stroke();
+    }
+    ctx.restore();
+
+    // --- Axes
+    ctx.strokeStyle = colorAxisStrong;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx - 50 * scale, cy); ctx.lineTo(cx + 50 * scale, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy - 50 * scale); ctx.lineTo(cx, cy + 50 * scale); ctx.stroke();
+
+    // --- Texte avec halo
+    ctx.font = '600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    const drawTextWithHalo = (text: string, x: number, y: number,
+                              align: CanvasTextAlign, baseline: CanvasTextBaseline) => {
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = labelStroke;
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = colorTick;
+      ctx.fillText(text, x, y);
+    };
+    for (let i = -50; i <= 50; i += 10) if (i !== 0) drawTextWithHalo(String(i), cx + i * scale, cy + 4, 'center', 'top');
+    for (let i = -50; i <= 50; i += 10) if (i !== 0) drawTextWithHalo(String(i), cx - 4, cy - i * scale, 'right', 'middle');
+    drawTextWithHalo('Y', cx - 2, cy - (55 * scale), 'right', 'middle');
+    drawTextWithHalo('X', cx + (55 * scale), cy, 'center', 'alphabetic');
+
+    // --- Helper: anneau d’invulnérabilité + timer
+    const drawInvulnRing = (px: number, py: number, untilPerfMs: number,
+                            labelSide: 'left' | 'right' | 'top' | 'bottom' = 'top') => {
+      const now = performance.now();
+      const left = Math.max(0, untilPerfMs - now);
+      if (left <= 0) return;
+
+      const frac = Math.max(0, Math.min(1, left / INVULN_DEFAULT_MS));
+
+      ctx.beginPath();
+      ctx.fillStyle = invColFill;
+      ctx.arc(px, py, RING_OUTER, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = RING_WIDTH;
+      ctx.strokeStyle = invColRing;
+      const start = -Math.PI / 2;
+      const end = start + Math.PI * 2 * frac;
+      ctx.beginPath();
+      ctx.arc(px, py, (RING_INNER + RING_OUTER) / 2, start, end);
+      ctx.stroke();
+      ctx.restore();
+
+      const secs = (left / 1000).toFixed(1);
+      ctx.save();
+      ctx.font = '600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillStyle = invColText;
+      ctx.textAlign = (labelSide === 'left' ? 'right' : labelSide === 'right' ? 'left' : 'center');
+      ctx.textBaseline = (labelSide === 'top' ? 'bottom' : labelSide === 'bottom' ? 'top' : 'middle');
+      const off = 16;
+      let tx = px, ty = py;
+      if      (labelSide === 'left')   tx -= off;
+      else if (labelSide === 'right')  tx += off;
+      else if (labelSide === 'top')    ty -= off;
+      else if (labelSide === 'bottom') ty += off;
+      ctx.shadowColor = 'rgba(0,0,0,.55)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(`${secs}s`, tx, ty);
+      ctx.restore();
+    };
+
+    // === Normalisation de l'état ===
+    const role: string = state?.role ?? 'chassé';
+    const tagRadius: number = Number(state?.tagRadius ?? 10); // 👈 rayon du tag
+
+    // multi-chasseurs
+    const hunterUids: string[] = Array.isArray(state?.hunterUids)
+      ? state.hunterUids.filter((u: any) => typeof u === 'string')
+      : [];
+
+    // others : Map | Array<[id,obj]> | Record | fallback players/bots
+    const othersEntries: Array<[string, any]> = [];
+    if (state?.others) {
+      const o = state.others;
+      if (o instanceof Map)      othersEntries.push(...o.entries());
+      else if (Array.isArray(o)) for (const it of o) if (Array.isArray(it) && it.length >= 2) othersEntries.push([String(it[0]), it[1]]);
+      else if (typeof o === 'object') othersEntries.push(...Object.entries(o));
+    }
+    const pushFromArray = (arr: any[] | undefined, prefix = '') => {
+      if (!Array.isArray(arr)) return;
+      for (const it of arr) {
+        const id = String(it?.id ?? it?.uid ?? (prefix + Math.random().toString(36).slice(2, 7)));
+        othersEntries.push([id, {
+          x: Number(it?.x ?? 0),
+          y: Number(it?.y ?? 0),
+          role: (it as any)?.role, // conserve le rôle si présent
+        }]);
+      }
+    };
+    if (othersEntries.length === 0) {
+      pushFromArray(state?.players);
+      pushFromArray(state?.bots, 'bot-');
+    }
+
+    // invuln globale optionnelle (epoch ms)
+    const hunterGlobalIFrameUntilMs: number | undefined = (state as any)?.hunterIFrameUntilMs;
+
+    // --- Dessin des autres
+    for (const [uid, p] of othersEntries) {
+      const isHunter = hunterUids.includes(uid) || roleIsHunter((p as any)?.role);
+      const px = cx + Number(p?.x ?? 0) * scale;
+      const py = cy - Number(p?.y ?? 0) * scale;
+
+      // iFrame until (support number ms ou Timestamp-like)
+      let untilMs: number | undefined;
+      const raw = (p as any)?.iFrameUntilMs;
+      if (typeof raw === 'number') {
+        untilMs = raw;
+      } else if (raw && typeof raw.seconds === 'number') {
+        untilMs = (raw.seconds * 1000) + (raw.nanoseconds ? raw.nanoseconds / 1e6 : 0);
+      } else if (isHunter && typeof hunterGlobalIFrameUntilMs === 'number') {
+        untilMs = hunterGlobalIFrameUntilMs;
+      }
+      if (untilMs && untilMs > Date.now()) {
+        drawInvulnRing(px, py, epochToPerfDeadline(untilMs), 'bottom');
+      }
+
+      // point
+      ctx.fillStyle = isHunter ? colorHunter : colorOther;
+      ctx.beginPath();
+      ctx.arc(px, py, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 👇 Cercle de tag autour de CHAQUE chasseur
+      if (isHunter && tagRadius > 0) {
+        ctx.strokeStyle = colorRing;
+        ctx.beginPath();
+        ctx.arc(px, py, tagRadius * scale, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  };
+
+
 }
 
 
@@ -16429,19 +17137,21 @@ FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-detail
 REL:  src\app\pages\room-detail\room-detail.component.html
 ────────────────────────────────────────────────────────────
 @if (room$ | async; as room) {
+
   <h2>Room {{ room.id }}</h2>
-  <p>Statut: {{ room.status }} — Mode: {{ room.mode }}</p>
+  <p>Statut: {{ room.state }} — Mode: {{ room.mode }}</p>
+  <button (click)="confirmDelete()" class="danger">🗑️ Supprimer cette room</button>
 
-  @if (room.lastEventAt) {
-    <p>Dernier évènement: {{ room.lastEventAt | date:'short' }}</p>
-  }
+  <h3>Carte temps réel</h3>
+  <!-- ✅ IMPORTANT: on passe l'id de la room à la carte -->
+  <app-room-live-map></app-room-live-map>
 
-  <h3>Joueurs</h3>
-  <ul>
-    <li *ngFor="let uid of (room.playerUids || [])">
-      {{ uid }}
-    </li>
-  </ul>
+
+ 
+
+  <pre class="muted" style="white-space:pre-wrap">
+  @if (room?.players) { {{ room.players | json }} } @else { no room.players }
+</pre>
 
   <!-- ====== BOTS (monitor -> RTDB) ====== -->
   <h3>Bots (monitor → RTDB)</h3>
@@ -16449,28 +17159,43 @@ REL:  src\app\pages\room-detail\room-detail.component.html
     <button (click)="addBot()">+ Ajouter un bot</button>
 
     <ul>
-      <li *ngFor="let b of (bots$ | async)"
+      @for (b of (bots$ | async); track b.id) {
+        <li
           [class.selected]="b.id === selectedBotId"
           (click)="selectBot(b.id)">
-        <strong>{{ b.displayName || b.id }}</strong>
-        — ({{ b.x }}, {{ b.y }})
-        <span *ngIf="b.id === selectedBotId"> ← sélectionné</span>
-      </li>
+          <strong>{{ b.displayName || b.id }}</strong>
+          — ({{ b.x ?? 0 }}, {{ b.y ?? 0 }})
+          @if (b.id === selectedBotId) { <span> ← sélectionné</span> }
+        </li>
+      }
     </ul>
 
-    <div class="controls" *ngIf="selectedBotId as id">
-      <p>Contrôles pour: <code>{{ id }}</code></p>
-      <div class="pad">
-        <button (click)="step(0,-1)">↑</button>
-        <div>
-          <button (click)="step(-1,0)">←</button>
-          <button (click)="step(1,0)">→</button>
+    @if (selectedBotId; as id) {
+      <div class="controls">
+        <p>Contrôles pour: <code>{{ id }}</code></p>
+        <div class="pad">
+          <button (click)="step(0,-1)">↑</button>
+          <div>
+            <button (click)="step(-1,0)">←</button>
+            <button (click)="step(1,0)">→</button>
+          </div>
+          <button (click)="step(0,1)">↓</button>
         </div>
-        <button (click)="step(0,1)">↓</button>
+        <button (click)="toggleRandom()">Aléatoire ON/OFF</button>
       </div>
-      <button (click)="toggleRandom()">Aléatoire ON/OFF</button>
-    </div>
+    }
   </div>
+
+  <h3>Positions (live ou spawn)</h3>
+  <ul>
+    @for (p of (positions$ | async); track p.id) {
+      <li>
+        <code [style.opacity]="p.isBot ? 0.7 : 1">{{ p.id }}</code>
+        — ({{ p.x | number:'1.0-2' }}, {{ p.y | number:'1.0-2' }})
+        @if (p.isBot) { <span>[bot]</span> }
+      </li>
+    }
+  </ul>
 
   <!-- ====== DIAGNOSTIC ====== -->
   <h3>Diagnostic droits</h3>
@@ -16478,14 +17203,14 @@ REL:  src\app\pages\room-detail\room-detail.component.html
     <button (click)="runDiag()">▶ Rafraîchir</button>
     <button (click)="tryWriteTest()">✍ Test écriture bots</button>
     <ul>
-      <li><b>auth.uid</b> = {{ diag.uid }}</li>
-      <li><b>isAdminRTDB</b> = {{ diag.isAdminRTDB }}</li>
-      <li><b>roomsMeta/{{ room.id }}/ownerUid</b> = {{ diag.ownerUid }}</li>
+      <li><b>auth.uid</b> = {{ diag.uid || '—' }}</li>
+      <li><b>roomsMeta/{{ room.id }}/ownerUid</b> = {{ diag.ownerUid || '—' }}</li>
       <li><b>write bots</b> = {{ diag.canWriteBots }}</li>
     </ul>
   </div>
 
   <p><a [routerLink]="['/rooms']">← Retour</a></p>
+
 } @else {
   <p>Room introuvable.</p>
 }
@@ -16495,61 +17220,278 @@ REL:  src\app\pages\room-detail\room-detail.component.html
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-detail.component.scss
 REL:  src\app\pages\room-detail\room-detail.component.scss
 ────────────────────────────────────────────────────────────
-/* styles optionnels */
+/* ============ Thème & variables ============ */
 :host {
+  --bg: #0f1116;
+  --panel: #171a21;
+  --panel-2: #1e2230;
+  --text: #e6eaf2;
+  --muted: #a7b0c0;
+  --primary: #6aa2ff;
+  --primary-2: #3f85ff;
+  --danger: #ff6262;
+  --accent: #7ce7b1;
+  --ring: rgba(106, 162, 255, 0.45);
+  --sep: rgba(255, 255, 255, 0.08);
+
   display: block;
   padding: 16px;
+  color: var(--text);
+  background: transparent; // hérite du global
 }
 
-h2 { margin: 0 0 8px; }
+/* Clair automatique */
+@media (prefers-color-scheme: light) {
+  :host {
+    --bg: #f7f9fc;
+    --panel: #ffffff;
+    --panel-2: #f3f6fb;
+    --text: #142032;
+    --muted: #516072;
+    --primary: #2b6cff;
+    --primary-2: #2057d6;
+    --danger: #d43b3b;
+    --accent: #1bbf83;
+    --ring: rgba(43, 108, 255, 0.35);
+    --sep: rgba(0, 0, 0, 0.06);
+  }
+}
 
+/* ============ Helpers ============ */
+.muted { color: var(--muted); }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.02);
+}
+.stretch { width: 100%; }
+
+/* ============ Titres & layout ============ */
+h2 {
+  margin: 0 0 10px;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+
+h3 {
+  margin: 18px 0 10px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+
+section {
+  @extend .card;
+  padding: 14px;
+  margin: 14px 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+
+  @media (min-width: 900px) {
+    grid-template-columns: 1.15fr .85fr;
+  }
+}
+
+/* ============ Boutons ============ */
+button {
+  --btn-bg: var(--panel-2);
+  --btn-fg: var(--text);
+  --btn-bd: var(--sep);
+
+  appearance: none;
+  border: 1px solid var(--btn-bd);
+  background: linear-gradient(180deg, var(--btn-bg), color-mix(in oklab, var(--btn-bg) 88%, black));
+  color: var(--btn-fg);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .15s ease, border-color .15s ease, background .2s ease;
+
+  &:hover {
+    border-color: color-mix(in oklab, var(--btn-bd) 50%, var(--primary));
+    box-shadow: 0 6px 16px rgba(0,0,0,.18), 0 0 0 4px var(--ring);
+    transform: translateY(-1px);
+  }
+  &:active { transform: translateY(0); box-shadow: none; }
+  &:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ring); }
+}
+
+button.primary {
+  --btn-bg: var(--primary);
+  --btn-fg: #fff;
+  --btn-bd: transparent;
+  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+
+  &:hover { box-shadow: 0 8px 20px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 4px var(--ring); }
+}
+
+button.danger {
+  --btn-bg: var(--danger);
+  --btn-fg: #fff;
+  --btn-bd: transparent;
+  background: linear-gradient(180deg, var(--danger), color-mix(in oklab, var(--danger) 85%, black));
+
+  &:hover { box-shadow: 0 8px 20px color-mix(in oklab, var(--danger) 35%, transparent), 0 0 0 4px rgba(255, 98, 98, .35); }
+}
+
+/* ============ Carte temps réel ============ */
+app-room-live-map {
+  display: block;
+  @extend .card;
+  padding: 8px;
+}
+
+app-room-live-map .map {
+  width: 100%;
+  height: 420px;
+  display: block;
+  border-radius: 10px;
+  background:
+    linear-gradient(0deg, var(--panel-2), var(--panel-2)),
+    repeating-linear-gradient(0deg, transparent, transparent 28px, var(--sep) 28px, var(--sep) 29px),
+    repeating-linear-gradient(90deg, transparent, transparent 28px, var(--sep) 28px, var(--sep) 29px);
+  border: 1px solid var(--sep);
+}
+
+/* ============ Listes génériques ============ */
+ul.reset {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.list {
+  @extend .card;
+  padding: 8px;
+}
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  transition: background .15s ease, transform .05s ease;
+
+  &:hover {
+    background: color-mix(in oklab, var(--panel) 85%, white 15%);
+    transform: translateY(-1px);
+  }
+}
+
+/* ============ Bots ============ */
 .bots {
   margin-top: 16px;
 
-  ul {
-    list-style: none;
-    padding-left: 0;
-  }
+  ul { @extend .reset; }
 
   li {
     cursor: pointer;
-    padding: 4px 6px;
-    border-radius: 6px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--sep);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: color-mix(in oklab, var(--panel) 92%, black 8%);
+    transition: background .2s ease, border-color .2s ease, transform .06s ease;
+
+    strong { font-weight: 700; letter-spacing: .2px; }
+
+    &:hover {
+      background: color-mix(in oklab, var(--panel) 86%, var(--primary) 14%);
+      border-color: color-mix(in oklab, var(--sep) 50%, var(--primary) 50%);
+      transform: translateY(-1px);
+    }
   }
 
   li.selected {
-    background: rgba(255, 255, 255, 0.08);
+    background: color-mix(in oklab, var(--panel) 75%, var(--primary) 25%);
+    border-color: color-mix(in oklab, var(--sep) 20%, var(--primary) 80%);
+    box-shadow: 0 0 0 3px var(--ring) inset;
   }
 
   .pad {
     display: inline-flex;
     flex-direction: column;
-    gap: 4px;
-    margin: 8px 0;
+    gap: 6px;
+    margin: 10px 0;
 
-    button { min-width: 36px; }
+    button { min-width: 40px; }
 
     div {
       display: flex;
-      gap: 4px;
+      gap: 6px;
       justify-content: center;
     }
   }
 }
 
+/* ============ Positions (liste) ============ */
+.positions {
+  @extend .list;
+
+  li code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--sep);
+  }
+  li .meta {
+    color: var(--muted);
+    font-size: .92rem;
+  }
+}
+
+/* ============ Diagnostic ============ */
 .diag {
   margin-top: 20px;
-  padding: 10px;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--panel) 86%, var(--accent) 14%);
+  border: 1px dashed color-mix(in oklab, var(--accent) 35%, transparent);
 
-  ul {
-    margin: 8px 0 0;
-  }
+  ul { margin: 8px 0 0; padding-left: 18px; }
+  button + button { margin-left: 8px; }
+}
 
-  button + button {
-    margin-left: 8px;
+/* ============ Petits badges & états ============ */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 999px;
+  font-weight: 700; font-size: .8rem; letter-spacing: .25px;
+  border: 1px solid var(--sep);
+  background: var(--panel-2);
+}
+.badge.success { color: #0a7a53; background: color-mix(in oklab, var(--accent) 30%, var(--panel-2)); }
+.badge.warn    { color: #7a4a0a; background: color-mix(in oklab, #ffcf7a 30%, var(--panel-2)); }
+.badge.danger  { color: #7a0a0a; background: color-mix(in oklab, var(--danger) 30%, var(--panel-2)); }
+
+/* ============ Liens ============ */
+a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in oklab, var(--primary) 55%, transparent);
+  transition: color .15s ease, border-color .15s ease;
+  &:hover {
+    color: var(--primary-2);
+    border-color: var(--primary-2);
   }
+}
+
+/* ============ Petites animations d’apparition ============ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card, .list, .bots li, app-room-live-map {
+  animation: fadeInUp .25s ease both;
 }
 
 
@@ -16557,140 +17499,362 @@ h2 { margin: 0 0 8px; }
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-detail.component.ts
 REL:  src\app\pages\room-detail\room-detail.component.ts
 ────────────────────────────────────────────────────────────
-import { Component, inject } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
-import { AsyncPipe, DatePipe, NgFor, NgIf } from '@angular/common';
-import { MonitorService } from '../../services/monitor.service';
-import { map } from 'rxjs/operators';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { AsyncPipe, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-// === BOTS ===
-import { BotService, Bot } from '../../services/bot.service';
+import { MonitorService,  PosDTO } from '../../services/monitor.service';
+import { RoomDoc, RoomVM } from '../../models/room.model';
+
+import { Database, ref, objectVal, set, update, get } from '@angular/fire/database';
 import { Auth } from '@angular/fire/auth';
-import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+import { firstValueFrom, Observable } from 'rxjs';
 
-// === DIAG RTDB ===
-import { Database, ref, get, set, onValue } from '@angular/fire/database';
+// Carte temps réel (présente sur la page)
+import { RoomLiveMapComponent } from './room-live-map/room-live-map.component';
 
-type RoomVM = {
-  id: string;
-  status: 'idle' | 'running' | 'ended';
-  mode: 'classic' | 'transmission' | 'infection';
-  playerUids?: string[];
-  hunterUids?: string[];
-  roles?: Record<string, 'hunter' | 'runner'>;
-  lastEventAt?: Date | null;
-  roundEndAtMs?: number;
-};
+type Bot = { id: string; x?: number; y?: number; displayName?: string; random?: boolean };
+type PositionItem = { id: string; isBot: boolean; x: number; y: number };
 
 @Component({
   standalone: true,
   selector: 'app-room-detail',
-  imports: [RouterLink, AsyncPipe, DatePipe, NgIf, NgFor],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    AsyncPipe, DatePipe, DecimalPipe, JsonPipe, RouterLink,
+    RoomLiveMapComponent,
+  ],
   templateUrl: './room-detail.component.html',
-  styleUrls: ['./room-detail.component.scss'],
 })
 export class RoomDetailComponent {
   private route = inject(ActivatedRoute);
   private monitor = inject(MonitorService);
-
-  // === BOTS ===
-  private botSvc = inject(BotService);
-  private auth = inject(Auth);
-
-  // === DIAG RTDB ===
   private db = inject(Database);
+  private auth = inject(Auth);
+  private router = inject(Router);
 
-  readonly roomId = this.route.snapshot.paramMap.get('id')!;
-  readonly room$ = this.monitor.rooms$.pipe(
-    map((list) => list.find((r) => r.id === this.roomId))
+  readonly roomId: string = this.route.snapshot.paramMap.get('id')!;
+
+  // VM / Room
+  readonly room$: Observable<RoomDoc> =
+    this.monitor.roomById$(this.roomId) as any;
+
+  // Positions (live) transformées pour la liste
+  readonly positions$: Observable<PositionItem[]> =
+    this.monitor.liveMap$(this.roomId).pipe(
+      map((dots: PosDTO[]) =>
+        (dots ?? [])
+          .map((d: PosDTO) => ({
+            id: d.uid ?? '',
+            isBot: (d.uid ?? '').startsWith('bot-'),
+            x: d.x,
+            y: d.y,
+          }))
+          .sort((a, b) => Number(a.isBot) - Number(b.isBot))
+      )
+    );
+
+  // ===== BOTS (RTDB: bots/{roomId}/{botId}) =====
+  readonly bots$: Observable<Bot[]> = objectVal<Record<string, Omit<Bot, 'id'>> | null>(
+    ref(this.db, `bots/${this.roomId}`)
+  ).pipe(
+    map(rec => {
+      const obj = rec ?? {};
+      return Object.keys(obj).map(id => ({ id, ...obj[id] }));
+    })
   );
 
-  // BOTS
-  bots$: Observable<Bot[]> = this.botSvc.bots$(this.roomId);
-  selectedBotId: string | null = null;
-  private randomWalkTimer: any = null;
+  /** cache local pour step() / toggleRandom() */
+  private latestBots: Record<string, Bot> = {};
 
-  // DIAG
+  constructor() {
+    this.bots$.subscribe(list => {
+      const next: Record<string, Bot> = {};
+      for (const b of list) next[b.id] = b;
+      this.latestBots = next;
+    });
+  }
+
+  selectedBotId: string | null = null;
+  selectBot(id: string) { this.selectedBotId = id; }
+
+  async addBot(): Promise<void> {
+    const id =
+      typeof crypto !== 'undefined' && (crypto as any)?.randomUUID
+        ? (crypto as any).randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+
+    const path = ref(this.db, `bots/${this.roomId}/${id}`);
+    await set(path, { x: 0, y: 0, random: false, displayName: `Bot ${id}` });
+    this.selectedBotId = id;
+  }
+
+  async step(dx: number, dy: number): Promise<void> {
+    const id = this.selectedBotId;
+    if (!id) return;
+    const current = this.latestBots[id] ?? {};
+    const x = (current.x ?? 0) + dx;
+    const y = (current.y ?? 0) + dy;
+    await update(ref(this.db, `bots/${this.roomId}/${id}`), { x, y });
+  }
+
+  async toggleRandom(): Promise<void> {
+    const id = this.selectedBotId;
+    if (!id) return;
+    const current = this.latestBots[id] ?? {};
+    await update(ref(this.db, `bots/${this.roomId}/${id}`), { random: !current.random });
+  }
+
+  // ===== DIAGNOSTIC (RTDB + Auth) =====
   diag = {
     uid: '',
     isAdminRTDB: false,
-    ownerUid: '(inconnu)',
-    canWriteBots: '(test non lancé)',
+    ownerUid: '',
+    canWriteBots: false,
   };
 
-  constructor() {
-    // Tente de poser l'owner si absent (écriture autorisée si !data.exists() ou si admin selon tes rules)
-    this.botSvc.ensureOwnership(this.roomId);
+  async runDiag(): Promise<void> {
+    this.diag.uid = this.auth.currentUser?.uid || '';
+    const metaSnap = await get(ref(this.db, `roomsMeta/${this.roomId}`));
+    this.diag.ownerUid = (metaSnap.val() && metaSnap.val().ownerUid) || '';
+    const adminSnap = await get(ref(this.db, `users/${this.diag.uid}/admin`));
+    this.diag.isAdminRTDB = !!adminSnap.val();
   }
+
+  async tryWriteTest(): Promise<void> {
+    try {
+      const testRef = ref(this.db, `bots/${this.roomId}/__test__`);
+      await set(testRef, { t: Date.now() });
+      this.diag.canWriteBots = true;
+    } catch {
+      this.diag.canWriteBots = false;
+    } finally {
+      try { await set(ref(this.db, `bots/${this.roomId}/__test__`), null); } catch {}
+    }
+  }
+
+  async confirmDelete(): Promise<void> {
+    const room = await firstValueFrom(this.room$);
+    const roomId = (room as RoomDoc | RoomVM | undefined)?.id;
+    if (!roomId) return;
+
+    const ok = window.confirm(
+      `Supprimer définitivement la room ${roomId} ?\n` +
+      `Sous-collections 'events' et 'players' incluses.`
+    );
+    if (!ok) return;
+
+    try {
+      await this.monitor.deleteRoom(roomId);
+      try { await set(ref(this.db, `bots/${roomId}`), null); } catch {}
+      this.router.navigateByUrl('/rooms');
+    } catch (e) {
+      alert('Échec de suppression : ' + (e as Error).message);
+    }
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-live-map\room-live-map.component.html
+REL:  src\app\pages\room-detail\room-live-map\room-live-map.component.html
+────────────────────────────────────────────────────────────
+<div class="map-wrap">
+  <canvas #cv class="map-canvas" aria-label="Carte temps réel"></canvas>
+  <div class="legend">
+    <span class="dot dot--player"></span> Joueur
+    <span class="dot dot--bot"></span> Bot
+  </div>
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-live-map\room-live-map.component.scss
+REL:  src\app\pages\room-detail\room-live-map\room-live-map.component.scss
+────────────────────────────────────────────────────────────
+.map-wrap {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #ffffff22;
+}
+
+.map-canvas {
+  width: 100%;
+  height: 380px;
+  display: block;
+  background: var(--canvas-bg, #0f1115);
+}
+
+.legend {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #0006;
+  color: #fff;
+  font: 12px/1.2 system-ui, sans-serif;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.dot--player { background: #3fa7ff; }
+.dot--bot    { background: #9aa0a6; }
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-live-map\room-live-map.component.ts
+REL:  src\app\pages\room-detail\room-live-map\room-live-map.component.ts
+────────────────────────────────────────────────────────────
+import {
+  Component, ElementRef, ViewChild, OnDestroy, OnInit, inject, NgZone
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
+import { PosDTO, PositionsService } from '../../../services/positions.service';
+import { PlayRenderer } from '../play.renderer';
+import { MonitorService } from '../../../services/monitor.service';
+
+// Adapte ces chemins selon ton repo
+
+
+@Component({
+  standalone: true,
+  selector: 'app-room-live-map',
+  imports: [CommonModule],
+  templateUrl: './room-live-map.component.html',
+  styleUrls: ['./room-live-map.component.scss'],
+})
+export class RoomLiveMapComponent implements OnInit, OnDestroy {
+  private route = inject(ActivatedRoute);
+  private ngZone = inject(NgZone);
+  private positions: PositionsService = inject(PositionsService);
+  private monitor = inject(MonitorService);
+private hunterUids: string[] = [];
+
+  @ViewChild('cv', { static: true }) cv!: ElementRef<HTMLCanvasElement>;
+
+  private roomId!: string;
+  private raf = 0;
+  private ctx!: CanvasRenderingContext2D;
+  private renderer = new PlayRenderer();
+
+  // cache live des positions (uid → {x,y,...})
+  private latest: Record<string, PosDTO> = {};
+  private rendererWantsCanvas?: boolean; // cache le mode après 1er essai
+
 
   ngOnInit() {
-    const u = this.auth.currentUser;
-    if (u?.uid) {
-      const adminRef = ref(this.db, `admins/${u.uid}`);
-      onValue(adminRef, (snap) => {
-        this.diag.isAdminRTDB = snap.val() === true;
-      }, (err) => {
-        console.warn('[admins read denied]', err?.message || err);
-        this.diag.isAdminRTDB = false; // fallback
-      });
+    this.roomId = this.route.snapshot.paramMap.get('id')!;
+    this.positions.startListening(this.roomId);
+
+    const canvas = this.cv.nativeElement;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context not available');
+    this.ctx = ctx;
+
+    this.positions.positions$.subscribe((map: Record<string, PosDTO> | null) => {
+  this.latest = map ?? {};
+
+  // dérive la liste des chasseurs d'après role
+  const hunters: string[] = [];
+  for (const [id, p] of Object.entries(this.latest)) {
+    const role = String(p?.role ?? '').toLowerCase();
+    if (role === 'chasseur' || role === 'hunter') hunters.push(id);
+  }
+  this.hunterUids = Array.from(new Set(hunters));
+  
+
+  if (!this.raf) this.raf = requestAnimationFrame(() => this.draw());
+});
+
+    this.ngZone.runOutsideAngular(() => this.loop());
+  }
+
+  ngOnDestroy() {
+    cancelAnimationFrame(this.raf);
+    this.positions?.stop?.();
+  }
+
+  private loop = () => {
+    this.draw();
+    this.raf = requestAnimationFrame(this.loop);
+  };
+
+  roleIsHunter = (r: any) => {
+    const s = String(r ?? '').toLowerCase();
+    return s === 'chasseur' || s === 'hunter';
+  };
+
+  private draw() {
+    const canvas = this.cv.nativeElement;
+
+    // DPR & resize
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    const rect = canvas.getBoundingClientRect();
+    const W = Math.round(rect.width * dpr);
+    const H = Math.round(rect.height * dpr);
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W; canvas.height = H;
     }
-  }
 
-  // === Actions BOT ===
-  async addBot() {
-    const name = `Bot ${Math.floor(Math.random() * 100)}`;
-    // s’assurer d’être owner (ou admin) juste avant d’écrire
-    await this.botSvc.ensureOwnership(this.roomId);
-    const id = await this.botSvc.addBot(this.roomId, name);
-    this.selectedBotId = id;
-  }
+    // === Build RenderState ===
+    const now = performance.now();
+    const bounds = { minX: -50, maxX: 50, minY: -50, maxY: 50 };
 
-  async step(dx: number, dy: number) {
-    if (!this.selectedBotId) return;
-    await this.botSvc.moveBot(this.roomId, this.selectedBotId, dx, dy);
-  }
+    const players: Array<{ id: string; x: number; y: number; name?: string }> = [];
+    const bots   : Array<{ id: string; x: number; y: number; name?: string }> = [];
 
-  selectBot(id: string) {
-    this.selectedBotId = id;
-  }
-
-  toggleRandom() {
-    if (!this.selectedBotId) return;
-    if (this.randomWalkTimer) {
-      clearInterval(this.randomWalkTimer);
-      this.randomWalkTimer = null;
-      return;
-    }
-    this.randomWalkTimer = setInterval(() => {
-      const dx = Math.floor(Math.random() * 3) - 1; // -1..+1
-      const dy = Math.floor(Math.random() * 3) - 1;
-      this.botSvc.moveBot(this.roomId, this.selectedBotId!, dx, dy);
-    }, 600);
-  }
-
-  // === DIAGNOSTIC ===
-  async runDiag() {
-    const u = this.auth.currentUser;
-    this.diag.uid = u?.uid || '(no user)';
-
-    if (u?.uid) {
-      const adminSnap = await get(ref(this.db, `admins/${u.uid}`));
-      this.diag.isAdminRTDB = adminSnap.val() === true;
+    for (const [id, p] of Object.entries(this.latest)) {
+      if (!p) continue;
+      const item = {
+        id,
+        x: Number(p.x) || 0,
+        y: Number(p.y) || 0,
+        name: p.name,
+        role: p.role, // ⬅️ on passe le rôle au renderer
+      };
+      (id.startsWith('bot-') ? bots : players).push(item);
     }
 
-    const ownerSnap = await get(ref(this.db, `roomsMeta/${this.roomId}/ownerUid`));
-    this.diag.ownerUid = ownerSnap.exists() ? String(ownerSnap.val()) : '(absent)';
-  }
+    const state: any = {
+      now,
+      bounds,
+      grid: { show: true, step: 10 },
+      players,
+      bots,
+      showSelf: false,
+      hunterUids: this.hunterUids, // ⬅️ multi chasseurs depuis roles live
+      tagRadius: 10, 
+    };
 
-  async tryWriteTest() {
+
+
+    // 
     try {
-      const path = `bots/${this.roomId}/__perm_test`;
-      await set(ref(this.db, path), { t: Date.now() });
-      this.diag.canWriteBots = 'OK (écriture autorisée)';
-    } catch (e: any) {
-      this.diag.canWriteBots = 'REFUSÉ: ' + (e?.message || e);
+     
+        // On sait déjà qu'il veut un ctx
+        console.log('PlayRenderer: using ctx');
+        this.renderer.draw(this.ctx, state)
+        
+        
+      } 
+   catch {
+     console.log('PlayRenderer: fallback to quick draw');
+     
     }
   }
+
 }
 
 
@@ -16712,7 +17876,7 @@ import { MonitorService } from '../services/monitor.service';
     <ul>
       <li *ngFor="let r of (rooms$ | async)">
         <a [routerLink]="['/room', r.id]">{{ r.id }}</a>
-        — status: {{ r.status }} — mode: {{ r.mode }}
+        — status: {{ r.state }} — mode: {{ r.mode }}
         @if (r.lastEventAt) {
           — maj: {{ r.lastEventAt | date:'short' }}
         }
@@ -16722,6 +17886,55 @@ import { MonitorService } from '../services/monitor.service';
 })
 export class RoomsComponent {
   rooms$ = inject(MonitorService).rooms$;
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\auth.service.ts
+REL:  src\app\services\auth.service.ts
+────────────────────────────────────────────────────────────
+import { inject, Injectable, signal } from '@angular/core';
+import { Auth, GoogleAuthProvider, signInWithPopup, signOut } from '@angular/fire/auth';
+import { onIdTokenChanged, User } from 'firebase/auth';
+
+@Injectable({ providedIn: 'root' })
+export class AuthService {
+  private auth = inject(Auth);
+
+  // État exposé par le service
+  readonly uid = signal<string | null>(null);
+  readonly isAdmin = signal<boolean>(false);
+  readonly user = signal<User | null>(null);
+
+  constructor() {
+    // Écoute les changements de session/jeton et met à jour uid/isAdmin
+    onIdTokenChanged(this.auth, async (u) => {
+      this.user.set(u);
+      if (!u) {
+        this.uid.set(null);
+        this.isAdmin.set(false);
+        return;
+      }
+      this.uid.set(u.uid);
+      const token = await u.getIdTokenResult();
+      this.isAdmin.set(!!token.claims['admin']);
+    });
+  }
+
+  async loginWithGoogle(): Promise<void> {
+    await signInWithPopup(this.auth, new GoogleAuthProvider());
+    const u = this.auth.currentUser;
+    if (u) {
+      await u.getIdToken(true);
+      const token = await u.getIdTokenResult();
+      this.isAdmin.set(!!token.claims['admin']);
+    }
+  }
+
+  async logout(): Promise<void> {
+    await signOut(this.auth);
+    // onIdTokenChanged remettra uid/isAdmin
+  }
 }
 
 
@@ -16841,78 +18054,1574 @@ async addBot(roomId: string, displayName = 'Bot') {
 
 
 ────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\match.service.ts
+REL:  src\app\services\match.service.ts
+────────────────────────────────────────────────────────────
+import { Injectable, inject } from '@angular/core';
+import { authState, Auth as FirebaseAuth } from '@angular/fire/auth';
+import { Firestore, doc, docData, collection, collectionData, updateDoc } from '@angular/fire/firestore';
+import { addDoc, getDoc, increment, limit, orderBy, query, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { Observable, firstValueFrom, map, shareReplay } from 'rxjs';
+import { MyPlayerDoc,  TagEvent } from '../../../../tag-cartesien/src/app/pages/play/play.models';
+import { RoomDoc } from '../models/room.model';
+
+@Injectable({ providedIn: 'root' })
+export class MatchService {
+  // expo interne pour Play (update iFrame)
+  readonly fs = inject(Firestore);
+  private auth = inject(FirebaseAuth);
+  get uid(): string | undefined { return this.auth.currentUser?.uid || undefined; }
+  
+  private readonly EMIT_COOLDOWN_MS = 5000;
+  private _lastEmitByHunter = new Map<string, number>(); // key = uid
+
+  myPlayer$(matchId: string): Observable<MyPlayerDoc> {
+    const uid = this.uid!;
+    const meRef = doc(this.fs, `rooms/${matchId}/players/${uid}`);
+    return docData(meRef).pipe(
+      map(d => (d ?? {}) as MyPlayerDoc),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
+
+  room$(matchId: string): Observable<RoomDoc> {
+    const roomRef = doc(this.fs, `rooms/${matchId}`);
+    return docData(roomRef).pipe(
+      map(d => (d ?? {}) as RoomDoc),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
+
+  events$ = (matchId: string): Observable<TagEvent[]> => {
+    const eventsCol = collection(this.fs, `rooms/${matchId}/events`);
+    const qEvents = query(eventsCol, orderBy('ts', 'desc'), limit(20));
+    return collectionData(qEvents, { idField: 'id' }).pipe(
+      map(list => [...(list as TagEvent[])].reverse()),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
+
+  private async getPlayer(matchId: string, uid: string) {
+    const ref = doc(this.fs, `rooms/${matchId}/players/${uid}`);
+    const snap = await getDoc(ref);
+    return snap.exists() ? (snap.data() as MyPlayerDoc) : undefined;
+  }
+
+  async emitTag(matchId: string, x: number, y: number, victimUid: string) {
+    const uid = this.uid;
+    if (!uid) return;
+    const now = Date.now();
+
+    // ⛔️ NEW: règle "sans retag"
+    const me = await this.getPlayer(matchId, uid); // déjà existant chez toi
+    if (me?.noRetagUid === victimUid && me?.noRetagUntilMs && now < me.noRetagUntilMs) {
+      const err: any = new Error('no-retag');
+      err.retryInMs = me.noRetagUntilMs - now;
+      throw err; // à gérer côté UI (petit toast)
+    }
+
+    // (garde "lock" globale existante)
+    if (me?.cantTagUntilMs && now < me.cantTagUntilMs) {
+      const err: any = new Error('cant-tag-cooldown');
+      err.retryInMs = me.cantTagUntilMs - now;
+      throw err;
+    }
+
+    // (optionnel) vérifie rôle chasseur
+    if (me?.role !== 'chasseur') {
+      throw new Error('not-hunter');
+    }
+
+    // 🔒 Garde LOCALE anti double-émission
+    const lastLocal = this._lastEmitByHunter.get(uid) ?? 0;
+    if (now - lastLocal < this.EMIT_COOLDOWN_MS) {
+      const err: any = new Error('emit-cooldown');
+      err.retryInMs = this.EMIT_COOLDOWN_MS - (now - lastLocal);
+      throw err;
+    }
+
+    // 🟢 Arme le cooldown local tout de suite, rollback si échec
+    this._lastEmitByHunter.set(uid, now);
+    try {
+      await addDoc(collection(this.fs, `rooms/${matchId}/events`), {
+        type: 'tag',
+        hunterUid: uid,
+        victimUid,
+        x, y,
+        ts: serverTimestamp(),
+      });
+    } catch (e) {
+      this._lastEmitByHunter.delete(uid);
+      throw e;
+    }
+  }
+
+  async endIfTargetReached(matchId: string, projectedMyScore: number) {
+    const uid = this.uid; if (!uid) return;
+    const roomRef = doc(this.fs, `rooms/${matchId}`);
+    const snap = await getDoc(roomRef);
+    if (!snap.exists()) return;
+    const room = snap.data() as RoomDoc;
+    if (room.ownerUid !== uid) return;
+    if (!room?.targetScore || projectedMyScore < room.targetScore) return;
+    await updateDoc(roomRef, { state: 'ended' });
+  }
+
+  endByTimer = async (matchId: string) =>  {
+    const uid = this.uid; if (!uid) return;
+    const roomRef = doc(this.fs, `rooms/${matchId}`);
+    const snap = await getDoc(roomRef);
+    if (!snap.exists()) return;
+    const room = snap.data() as RoomDoc;
+    if (room.ownerUid !== uid) return;
+    await updateDoc(roomRef, { state: 'ended' });
+  }
+
+  async getMyPlayerIdFromAuth(): Promise<string> {
+    
+    // essaie d’abord le courant
+    const cur = this.auth.currentUser?.uid;
+    if (cur) return cur;
+    // sinon attends le prochain authState
+    const u = await firstValueFrom(authState(this.auth));
+    return u?.uid ?? '';
+  }
+
+  topPlayers$(roomId: string, top = 8): Observable<Array<{ uid: string; score: number; displayName?: string; combo?: number }>> {
+    const col = collection(this.fs, `rooms/${roomId}/players`);
+    const q = query(col, orderBy('score', 'desc'), limit(top));
+    return collectionData(q, { idField: 'uid' }) as any;
+  }
+
+ 
+  /** Crée une room + 2 participants.
+   *  - Le user courant est "chasseur"
+   *  - Un invité synthétique est "chassé"
+   *  Renvoie { roomId, name, ownerUid, guestUid } pour usage UI.
+   */
+  async createRoom(name: string): Promise<{ roomId: string; name: string; ownerUid: string; guestUid: string }> {
+    const ownerUid = this.uid;
+    if (!ownerUid) throw new Error('auth-required');
+
+    const finalName = (name ?? '').trim() || 'Partie';
+
+    // 1) Crée le doc room
+    const roomRef = await addDoc(collection(this.fs, 'rooms'), {
+      name: finalName,
+      ownerUid,
+      state: 'idle',
+      mode: 'default',
+      targetScore: 10,
+      timeLimit: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    const roomId = roomRef.id;
+
+    // 2) Prépare les 2 joueurs
+    const guestUid = `guest-${Math.random().toString(36).slice(2, 8)}`;
+
+    const p1: MyPlayerDoc = {
+      role: 'chasseur',
+      score: 0,
+      spawn: { x: 0, y: 0 },
+      iFrameUntilMs: 0,
+      cantTagUntilMs: 0,
+    };
+
+    const p2: MyPlayerDoc = {
+      role: 'chassé',
+      score: 0,
+      spawn: { x: 10, y: 0 },
+      iFrameUntilMs: 0,
+      cantTagUntilMs: 0,
+    };
+
+    // 3) Batch: players + roles + updatedAt
+    const batch = writeBatch(this.fs);
+
+    // players subcollection
+    batch.set(doc(this.fs, `rooms/${roomId}/players/${ownerUid}`), p1);
+    batch.set(doc(this.fs, `rooms/${roomId}/players/${guestUid}`), p2);
+
+    // roles map (utilisé par MonitorService.normalizeRoles) + updatedAt
+    batch.set(
+      doc(this.fs, 'rooms', roomId),
+      {
+        roles: {
+          [ownerUid]: 'chasseur',
+          [guestUid]: 'chassé',
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    await batch.commit();
+
+    // ➜ On renvoie aussi le nom pour afficher "Room “X” créée"
+    return { roomId, name: finalName, ownerUid, guestUid };
+  }
+}
+
+
+────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\monitor.service.ts
 REL:  src\app\services\monitor.service.ts
 ────────────────────────────────────────────────────────────
-import { Injectable, inject, signal, DestroyRef } from '@angular/core';
+// src/app/services/monitor.service.ts
+import { Injectable, inject } from '@angular/core';
 import {
   Firestore,
   collection,
+  CollectionReference,
   collectionData,
-  collectionGroup,
-  query,
-  orderBy,
-  limit,
   doc,
   docData,
+  query,
+  orderBy,
+  limit as qLimit,
+  collectionGroup,
+  where,
+  deleteDoc,
 } from '@angular/fire/firestore';
-import { Timestamp } from 'firebase/firestore';
-import { Database, ref, objectVal } from '@angular/fire/database';
-import { map, Observable, shareReplay } from 'rxjs';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-
+import {
+  Database,
+  ref as rtdbRef,
+  objectVal,
+} from '@angular/fire/database';
+import { Observable, map, shareReplay, distinctUntilChanged, combineLatest } from 'rxjs';
 import { RoomDoc } from '../models/room.model';
 import { EventItem } from '../models/event.model';
-import { DailyStats } from '../models/stats.model';
 
-type RoomVM = Omit<RoomDoc, 'lastEventAt'> & {
-  id: string;
-  lastEventAt?: Date | null;
-};
+// --- Tes interfaces (inchangées) ---
+export type GameMode = 'classic' | 'transmission' | 'infection';
+export type RoomState = 'idle' | 'running' | 'stopped';
 
-function toJsDate(v: Timestamp | Date | null | undefined): Date | null {
-  if (!v) return null;
-  return v instanceof Date ? v : (v as Timestamp).toDate();
+export interface DailyStats {
+  tagsTotal: number;
+  roomsTotal: number;
+  roomsRunning: number;
+  roomsIdle: number;
+  lastEventAt?: any; // Timestamp | Date | string
 }
+
+export interface PlayerDoc {
+  uid?: string;
+  displayName?: string;
+  role?: 'hunter' | 'runner' | 'bot';
+}
+
+export interface PosDTO {
+  x: number;
+  y: number;
+  uid?: string;
+  role?: PlayerDoc['role'];
+}
+
+// --- ✅ Alias de types pour éviter ReturnType<...> dans l'init des Maps ---
+type RoomsStream     = Observable<RoomDoc[]>;
+type RoomStream      = Observable<RoomDoc>;
+type PlayersStream   = Observable<PlayerDoc[]>;
+type EventsStream    = Observable<EventItem[]>;
+type PositionsStream = Observable<PosDTO[]>;
+type LiveMapStream   = Observable<PosDTO[]>;
+
+const isDefined = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
 
 @Injectable({ providedIn: 'root' })
 export class MonitorService {
-  private readonly fs = inject(Firestore);
-  private readonly rtdb = inject(Database);
-  private readonly destroyRef = inject(DestroyRef);
+  private fs = inject(Firestore);
+  private rtdb = inject(Database);
 
-  readonly rooms$: Observable<RoomVM[]> = collectionData(
-    query(collection(this.fs, 'rooms')), { idField: 'id' }
-  ).pipe(
-    map((arr: any[]) => arr.map(r => ({
-      ...r,
-      lastEventAt: toJsDate(r?.lastEventAt),
-    } as RoomVM))),
-    shareReplay({ bufferSize: 1, refCount: true })
+  // --- ✅ Caches avec annotations explicites (plus d'implicite / self-ref) ---
+  private _roomCache: Map<string, RoomDoc> = new Map();
+  private _playersCache: Map<string, PlayersStream> = new Map();
+  private _eventsCache: Map<string, EventsStream> = new Map();
+  private _positionsCache: Map<string, PositionsStream> = new Map();
+  private _liveMapCache: Map<string, LiveMapStream> = new Map();
+
+  // --- 1) ROOMS ---------------------------------------------------------------
+  readonly rooms$: RoomsStream = (() => {
+    const col = collection(this.fs, 'rooms') as CollectionReference<RoomDoc>;
+    return collectionData(col, { idField: 'id' }).pipe(
+      map(list => list ?? []),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+  })();
+
+
+  readonly latestEvents$ = (() => {
+    const cg = collectionGroup(this.fs, 'events');
+    const qy = query(cg, orderBy('at', 'desc'), qLimit(100));
+    return collectionData(qy, { idField: 'id' }).pipe(
+      map(list => (list ?? []) as EventItem[]),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+  })();
+
+  room$(roomId: string): RoomDoc {
+    const cached = this._roomCache.get(roomId);
+    if (cached) return cached;
+
+    const d = doc(this.fs, 'rooms', roomId);
+    const stream: any = docData(d, { idField: 'id' }).pipe(
+      map(r => (r ?? {}) as RoomDoc),
+      distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+    this._roomCache.set(roomId, stream);
+    return stream;
+  }
+
+  // --- 2) PLAYERS & EVENTS ----------------------------------------------------
+  players$(roomId: string): PlayersStream {
+    const cached = this._playersCache.get(roomId);
+    if (cached) return cached;
+
+    const col = collection(this.fs, 'rooms', roomId, 'players') as CollectionReference<PlayerDoc>;
+    const stream: PlayersStream = collectionData(col, { idField: 'uid' }).pipe(
+      map(list => list ?? []),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+    this._playersCache.set(roomId, stream);
+    return stream;
+  }
+
+  events$(roomId: string, limit = 50): EventsStream {
+    const key = `${roomId}#${limit}`;
+    const cached = this._eventsCache.get(key);
+    if (cached) return cached;
+
+    const col = collection(this.fs, 'rooms', roomId, 'events') as CollectionReference<EventItem>;
+    const q = query(col, orderBy('at', 'desc'), qLimit(limit));
+    const stream: EventsStream = collectionData(q, { idField: 'id' }).pipe(
+      map(list => list ?? []),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+    this._eventsCache.set(key, stream);
+    return stream;
+  }
+
+  // --- 3) POSITIONS (RTDB) ----------------------------------------------------
+  positions$(roomId: string): PositionsStream {
+    const cached = this._positionsCache.get(roomId);
+    if (cached) return cached;
+
+    const ref = rtdbRef(this.rtdb, `positions/${roomId}`);
+    const stream: PositionsStream =
+      objectVal<Record<string, { x: number; y: number }> | null>(ref).pipe(
+        map(obj => {
+          if (!obj) return [] as PosDTO[];
+          return Object.entries(obj)
+            .filter(([, v]) => isDefined(v) && isFinite(v.x) && isFinite(v.y))
+            .map(([uid, v]) => ({ uid, x: v.x, y: v.y } as PosDTO));
+        }),
+        shareReplay({ bufferSize: 1, refCount: true }),
+      );
+    this._positionsCache.set(roomId, stream);
+    return stream;
+  }
+
+  // --- 4) VUE ENRICHIE (pour canvas) ------------------------------------------
+  liveMap$(roomId: string): LiveMapStream {
+    const cached = this._liveMapCache.get(roomId);
+    if (cached) return cached;
+
+    const stream: LiveMapStream = this.positions$(roomId).pipe(
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+    this._liveMapCache.set(roomId, stream);
+    return stream;
+  }
+
+  // --- 5) HELPERS --------------------------------------------------------------
+  roleDictFromRoom(room: RoomDoc | null | undefined) {
+    const dict: Record<string, PlayerDoc['role']> = {};
+    if (!room) return dict;
+    if (room.roles) for (const [uid, r] of Object.entries(room.roles)) dict[uid] = r;
+    if (room.hunterUid) dict[room.hunterUid] = 'hunter';
+    return dict;
+  }
+
+  enrichPositionsWithRoles(
+    positions: PosDTO[],
+    roleDict: Record<string, PlayerDoc['role']>,
+    players: PlayerDoc[] = []
+  ): PosDTO[] {
+    if (!positions?.length) return [];
+    const fallback: Record<string, PlayerDoc['role']> = {};
+    for (const p of players) {
+      if (p.uid && p.role && !roleDict[p.uid]) fallback[p.uid] = p.role;
+    }
+    return positions.map(p => {
+      const role = (p.uid && (roleDict[p.uid] || fallback[p.uid])) ?? undefined;
+      return role ? { ...p, role } : p;
+    });
+  }
+  /** Stats agrégées de la journée courante (heure locale) */
+  readonly dailyStats$: Observable<DailyStats> = (() => {
+    const start = startOfTodayLocal();
+    const end   = startOfTomorrowLocal();
+
+    // a) Nombre d’événements de type "tag" aujourd’hui (via collectionGroup)
+    const eventsToday$ = (() => {
+      // events est une sous-collection: rooms/{id}/events → on utilise collectionGroup
+      const cg = collectionGroup(this.fs, 'events');
+      const qy = query(
+        cg,
+        where('type', '==', 'tag'),
+        where('at', '>=', start),  // nécessite que 'at' soit un Timestamp/Date comparable
+        where('at', '<',  end),
+      );
+      return collectionData(qy, { idField: 'id' }).pipe(
+        map(list => list?.length ?? 0),
+        shareReplay({ bufferSize: 1, refCount: true })
+      );
+    })();
+
+    // b) Infos rooms (totales / running / idle) + lastEventAt (max)
+    const roomsInfo$ = this.rooms$.pipe(
+      map((rooms) => {
+        const roomsTotal   = rooms.length;
+        const roomsRunning = rooms.filter(r => r.state === 'running').length;
+        const roomsIdle    = rooms.filter(r => r.state === 'idle').length;
+
+        // max lastEventAt si dispo
+        let lastEventAt: any | undefined = undefined;
+        for (const r of rooms) {
+          const v = (r as any)?.lastEventAt;
+          if (!v) continue;
+          if (!lastEventAt) { lastEventAt = v; continue; }
+          const a = v?.toMillis ? v.toMillis() : new Date(v).getTime?.();
+          const b = lastEventAt?.toMillis ? lastEventAt.toMillis() : new Date(lastEventAt).getTime?.();
+          if ((a ?? 0) > (b ?? 0)) lastEventAt = v;
+        }
+
+        return { roomsTotal, roomsRunning, roomsIdle, lastEventAt };
+      }),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+
+    // c) Combine → DailyStats
+    return combineLatest([eventsToday$, roomsInfo$]).pipe(
+      map(([tagsTotal, r]) => ({
+        tagsTotal,
+        roomsTotal:   r.roomsTotal,
+        roomsRunning: r.roomsRunning,
+        roomsIdle:    r.roomsIdle,
+        lastEventAt:  r.lastEventAt,
+      }) as DailyStats),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  })();
+
+
+
+  /** ✅ Alias pour compatibilité avec les composants existants */
+  roomById$(roomId: string): RoomDoc {
+    return this.room$(roomId);
+  }
+
+  async deleteRoom(roomId: string): Promise<void> {
+    await deleteDoc(doc(this.fs, 'rooms', roomId));
+  }
+
+}
+  function startOfTodayLocal(): Date {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function startOfTomorrowLocal(): Date {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\positions.service.ts
+REL:  src\app\services\positions.service.ts
+────────────────────────────────────────────────────────────
+import { Injectable, inject } from '@angular/core';
+import { Database, ref, set, onValue, off, onDisconnect, update } from '@angular/fire/database';
+import { BehaviorSubject, combineLatest, Subscription } from 'rxjs';
+
+export type PosDTO = { x: number; y: number; t?: number; name?: string; role?: string };
+export type Vec = { x: number; y: number };
+
+@Injectable({ providedIn: 'root' })
+export class PositionsService {
+  private db = inject(Database);
+
+  private mergeSub?: Subscription;
+  roomId!: string; // assigne-la depuis Play/Monitor si besoin
+
+  private _players$   = new BehaviorSubject<Record<string, PosDTO>>({});
+  private _bots$      = new BehaviorSubject<Record<string, PosDTO>>({});
+  private _positions$ = new BehaviorSubject<Record<string, PosDTO>>({});
+
+  // flux publics
+  readonly positions$ = this._positions$.asObservable();
+  // (optionnel) expose aussi ces deux-là si utile dans l’UI
+  readonly players$   = this._players$.asObservable();
+  readonly bots$      = this._bots$.asObservable();
+
+  private listenRefPlayers: any = null;
+  private listenRefBots: any = null;
+  private cbPlayers: any = null;
+  private cbBots: any = null;
+
+  /** Marque présence (RTDB onDisconnect cleanup) */
+  attachPresence(matchId: string, uid: string) {
+    if (!matchId || !uid) return;
+    const r = ref(this.db, `presence/${matchId}/${uid}`);
+    set(r, true).catch(() => {});
+    try { onDisconnect(r).remove(); } catch {}
+  }
+
+  /**
+   * Écrit la position "self" (joueur) avec options.
+   * - t par défaut = Date.now()
+   * - name/role optionnels
+   */
+  async writeSelf(
+    matchId: string,
+    uid: string,
+    x: number,
+    y: number,
+    opts?: { t?: number; name?: string; role?: string }
+  ) {
+    if (!matchId || !uid) return;
+    const r = ref(this.db, `positions/${matchId}/${uid}`);
+    const payload: PosDTO = {
+      x, y,
+      t: opts?.t ?? Date.now(),
+      ...(opts?.name ? { name: opts.name } : {}),
+      ...(opts?.role ? { role: opts.role } : {}),
+    };
+    await set(r, payload);
+  }
+
+  /** Met à jour uniquement le rôle d’un joueur (sans toucher x/y) */
+  async updateSelfRole(matchId: string, uid: string, role: string) {
+    if (!matchId || !uid) return;
+    await update(ref(this.db, `positions/${matchId}/${uid}`), { role, t: Date.now() });
+  }
+
+  /** Met à jour uniquement le nom d’un joueur */
+  async updateSelfName(matchId: string, uid: string, name: string) {
+    if (!matchId || !uid) return;
+    await update(ref(this.db, `positions/${matchId}/${uid}`), { name, t: Date.now() });
+  }
+
+  /** Lance l’écoute RTDB des joueurs et bots et publie positions$ fusionné */
+  startListening(matchId: string) {
+    this.stop();
+    if (!matchId) return;
+
+    // Joueurs
+    this.listenRefPlayers = ref(this.db, `positions/${matchId}`);
+    this.cbPlayers = (snap: any) => {
+      const val = (snap.val() || {}) as Record<string, PosDTO>;
+      // Normalise: force types nombre et garde role/name si présents
+      const norm: Record<string, PosDTO> = {};
+      for (const [id, p] of Object.entries(val)) {
+        if (!p) continue;
+        const x = Number((p as any).x);
+        const y = Number((p as any).y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        norm[id] = {
+          x, y,
+          t: typeof (p as any).t === 'number' ? (p as any).t : undefined,
+          name: (p as any).name,
+          role: (p as any).role, // on propage le rôle tel quel
+        };
+      }
+      this._players$.next(norm);
+    };
+    onValue(this.listenRefPlayers, this.cbPlayers);
+
+    // Bots
+    this.listenRefBots = ref(this.db, `bots/${matchId}`);
+    this.cbBots = (snap: any) => {
+      const val = (snap.val() || {}) as Record<string, PosDTO>;
+      const norm: Record<string, PosDTO> = {};
+      for (const [id, p] of Object.entries(val)) {
+        if (!p) continue;
+        const x = Number((p as any).x);
+        const y = Number((p as any).y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        norm[id] = {
+          x, y,
+          t: typeof (p as any).t === 'number' ? (p as any).t : undefined,
+          name: (p as any).name ?? `Bot ${id}`,
+          role: (p as any).role ?? 'bot', // ⬅️ role par défaut pour bots
+        };
+      }
+      this._bots$.next(norm);
+    };
+    onValue(this.listenRefBots, this.cbBots);
+
+    // Fusion joueurs + bots (bots préfixés)
+    this.mergeSub = combineLatest([this._players$, this._bots$]).subscribe(([p, b]) => {
+      const merged: Record<string, PosDTO> = { ...p };
+      for (const [id, pos] of Object.entries(b || {})) {
+        // Prefix pour distinguer (cohérent avec le reste de l’app)
+        const key = id.startsWith('bot-') ? id : `bot-${id}`;
+        merged[key] = pos;
+      }
+      this._positions$.next(merged);
+    });
+  }
+
+  /** Arrête toutes les écoutes et remet à zéro les flux */
+  stop() {
+    this.mergeSub?.unsubscribe();
+    this.mergeSub = undefined;
+
+    if (this.listenRefPlayers && this.cbPlayers) off(this.listenRefPlayers, this.cbPlayers);
+    if (this.listenRefBots && this.cbBots) off(this.listenRefBots, this.cbBots);
+
+    this.listenRefPlayers = this.cbPlayers = this.listenRefBots = this.cbBots = null;
+
+    this._players$.next({});
+    this._bots$.next({});
+    this._positions$.next({});
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\bots-controls\bots-controls.component.html
+REL:  src\app\sim\bots-controls\bots-controls.component.html
+────────────────────────────────────────────────────────────
+<div class="row">
+  <mat-form-field appearance="outline" style="max-width:160px">
+    <mat-label>Nombre de bots</mat-label>
+    <input matInput type="number" min="1" max="50"
+           [value]="nbBots()"
+           (input)="nbBotsChange.emit(+($any($event.target).value || 0))">
+  </mat-form-field>
+
+  <div class="row">
+    <mat-icon>speed</mat-icon>
+    <mat-slider min="80" max="800" step="20" [displayWith]="displayMs()">
+      <input matSliderThumb
+             [value]="speed()"
+             (valueChange)="speedChange.emit($event)" />
+    </mat-slider>
+    <span>{{ speed() }} ms</span>
+  </div>
+
+  <span class="grow"></span>
+
+  <button mat-raised-button color="primary" (click)="spawn.emit()">
+    <mat-icon>smart_toy</mat-icon>
+    Spawn bots
+  </button>
+  <button mat-raised-button color="accent" (click)="start.emit()">
+    <mat-icon>play_arrow</mat-icon>
+    Start
+  </button>
+  <button mat-raised-button (click)="stop.emit()">
+    <mat-icon>stop</mat-icon>
+    Stop
+  </button>
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\bots-controls\bots-controls.component.ts
+REL:  src\app\sim\bots-controls\bots-controls.component.ts
+────────────────────────────────────────────────────────────
+import { Component, input, output } from '@angular/core';
+import { MatIconModule } from '@angular/material/icon';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSliderModule } from '@angular/material/slider';
+import { MatButtonModule } from '@angular/material/button';
+
+@Component({
+  selector: 'app-bots-controls',
+  standalone: true,
+  imports: [MatIconModule, MatFormFieldModule, MatInputModule, MatSliderModule, MatButtonModule],
+  templateUrl: './bots-controls.component.html'
+})
+export class BotsControlsComponent {
+  nbBots = input<number>(6);
+  nbBotsChange = output<number>();
+  speed = input<number>(300);
+  speedChange = output<number>();
+  displayMs = input<(v:number|null)=>string>((v)=>`${v??0} ms`);
+
+  spawn = output<void>();
+  start = output<void>();
+  stop = output<void>();
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\create-room\create-room.component.html
+REL:  src\app\sim\create-room\create-room.component.html
+────────────────────────────────────────────────────────────
+<div class="row">
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Nom de la room</mat-label>
+    <input matInput
+           [value]="name()"
+           (input)="nameChange.emit(($any($event.target).value || '').trim())"
+           placeholder="ex: Partie du soir">
+  </mat-form-field>
+
+  <button mat-raised-button color="primary" (click)="create.emit()">
+    Créer la room
+  </button>
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\create-room\create-room.component.ts
+REL:  src\app\sim\create-room\create-room.component.ts
+────────────────────────────────────────────────────────────
+// src/app/sim/create-room/create-room.component.ts
+import { Component, input, output } from '@angular/core';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatButtonModule } from '@angular/material/button';
+
+@Component({
+  selector: 'app-create-room',
+  standalone: true,
+  imports: [MatFormFieldModule, MatInputModule, MatButtonModule],
+  templateUrl: './create-room.component.html'
+})
+export class CreateRoomComponent {
+  name = input<string>('');
+  nameChange = output<string>();
+  create = output<void>();
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.component.html
+REL:  src\app\sim\field-canvas\field-canvas.component.html
+────────────────────────────────────────────────────────────
+<div class="canvas-wrap">
+  <canvas #cv width="900" height="540"></canvas>
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.component.ts
+REL:  src\app\sim\field-canvas\field-canvas.component.ts
+────────────────────────────────────────────────────────────
+import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, input, signal, effect } from '@angular/core';
+
+type BotLocal = { id: string; x: number; y: number; h: number|null };
+type World = { minX:number; maxX:number; minY:number; maxY:number };
+
+@Component({
+  selector: 'app-field-canvas',
+  standalone: true,
+  templateUrl: './field-canvas.component.html',
+})
+export class FieldCanvasComponent implements AfterViewInit, OnDestroy {
+  world = input<World>({ minX:-45,maxX:45,minY:-30,maxY:30 });
+  bots  = input<BotLocal[]>([]);
+
+  @ViewChild('cv', { static: true }) cvRef!: ElementRef<HTMLCanvasElement>;
+  private ctx!: CanvasRenderingContext2D;
+  private raf: number | null = null;
+
+  constructor() {
+    effect(() => { if (this.ctx) this.frame(); });
+  }
+
+  ngAfterViewInit() {
+    const ctx = this.cvRef.nativeElement.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D introuvable');
+    this.ctx = ctx;
+    this.frame();
+  }
+  ngOnDestroy(){ if (this.raf) cancelAnimationFrame(this.raf); }
+
+  private frame(){
+    const ctx = this.ctx, cv = this.cvRef.nativeElement;
+    // fond
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.fillStyle = '#10151c'; ctx.fillRect(0,0,cv.width,cv.height);
+    // grille
+    this.drawGrid(5);
+    // bots (aperçu local)
+    ctx.fillStyle = '#6aa0ff';
+    for (const b of (this.bots()||[])) {
+      const p = this.toCanvas(b.x, b.y);
+      ctx.beginPath(); ctx.arc(p.cx, p.cy, 5.5, 0, Math.PI*2); ctx.fill();
+    }
+    this.raf = requestAnimationFrame(()=>this.frame());
+  }
+
+  private drawGrid(step=5){
+    const {minX,maxX,minY,maxY} = this.world();
+    const ctx = this.ctx;
+    ctx.strokeStyle='#223043'; ctx.lineWidth=1;
+    for(let x=Math.ceil(minX/step)*step; x<=maxX; x+=step){
+      const a=this.toCanvas(x,minY), b=this.toCanvas(x,maxY);
+      ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
+    }
+    for(let y=Math.ceil(minY/step)*step; y<=maxY; y+=step){
+      const a=this.toCanvas(minX,y), b=this.toCanvas(maxX,y);
+      ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
+    }
+    ctx.strokeStyle='#8fa3bf'; ctx.lineWidth=1.4;
+    let a=this.toCanvas(0,minY), b=this.toCanvas(0,maxY);
+    ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
+    a=this.toCanvas(minX,0), b=this.toCanvas(maxX,0);
+    ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
+  }
+
+  private toCanvas(x:number,y:number){
+    const cv=this.cvRef.nativeElement;
+    const {minX,maxX,minY,maxY} = this.world();
+    const nx = (x - minX) / (maxX - minX);
+    const ny = (y - minY) / (maxY - minY);
+    return { cx: nx * cv.width, cy: cv.height - ny * cv.height };
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\room-input\room-input.component.html
+REL:  src\app\sim\room-input\room-input.component.html
+────────────────────────────────────────────────────────────
+<div class="row">
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Room ID</mat-label>
+    <input matInput
+           [value]="roomId()"
+           (input)="roomIdChange.emit(($any($event.target).value || '').trim())"
+           placeholder="ex: DEMO-123">
+  </mat-form-field>
+
+  <button mat-stroked-button (click)="listen.emit()">Listen</button>
+  <button mat-stroked-button (click)="unlisten.emit()">Unlisten</button>
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\room-input\room-input.component.ts
+REL:  src\app\sim\room-input\room-input.component.ts
+────────────────────────────────────────────────────────────
+import { AfterViewInit, Component, effect, ElementRef, input, OnDestroy, output, ViewChild } from '@angular/core';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatButtonModule } from '@angular/material/button';
+
+@Component({
+  selector: 'app-room-input',
+  standalone: true,
+  imports: [MatFormFieldModule, MatInputModule, MatButtonModule],
+  templateUrl: './room-input.component.html'
+})
+export class RoomInputComponent {
+  roomId = input<string>('');
+  roomIdChange = output<string>();
+  listen = output<void>();
+  unlisten = output<void>();
+}
+
+
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\room-select\room-select.component.css
+REL:  src\app\sim\room-select\room-select.component.css
+────────────────────────────────────────────────────────────
+.room-select {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.grow { width: 100%; }
+.w-full { width: 100%; }
+
+.filter, .sort {
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.name { font-weight: 600; }
+.meta { display: inline-flex; gap: .5rem; align-items: center; opacity: .9; }
+
+.chip { margin-right: .25rem; }
+.id { font-size: 12px; opacity: .6; }
+
+mat-card { margin-top: .25rem; }
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\room-select\room-select.component.html
+REL:  src\app\sim\room-select\room-select.component.html
+────────────────────────────────────────────────────────────
+<!-- src/app/sim/room-select/room-select.component.html -->
+<div class="room-select">
+
+  <!-- Ligne de recherche + filtres -->
+  <div class="toolbar">
+    <mat-form-field appearance="outline" class="grow">
+      <mat-label>Rechercher une room</mat-label>
+      <input matInput
+             [matAutocomplete]="auto"
+             [value]="query()"
+             (input)="query.set(($any($event.target)).value)"
+             placeholder="Nom, ID, mode…"
+             autocomplete="off">
+      @if (query()) {
+        <button matSuffix mat-icon-button aria-label="Effacer" (click)="clearQuery()">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+
+    <mat-button-toggle-group class="filter" [value]="filter()" (change)="setFilter($event.value)">
+      <mat-button-toggle value="all"     matTooltip="Toutes"><mat-icon>all_inclusive</mat-icon></mat-button-toggle>
+      <mat-button-toggle value="running" matTooltip="En cours"><mat-icon>play_circle</mat-icon></mat-button-toggle>
+      <mat-button-toggle value="idle"    matTooltip="Au repos"><mat-icon>pause_circle</mat-icon></mat-button-toggle>
+    </mat-button-toggle-group>
+
+    <mat-button-toggle-group class="sort" [value]="sortBy()" (change)="setSort($event.value)">
+      <mat-button-toggle value="recent" matTooltip="Plus récents d'abord"><mat-icon>schedule</mat-icon></mat-button-toggle>
+      <mat-button-toggle value="name"   matTooltip="Trier par nom"><mat-icon>sort_by_alpha</mat-icon></mat-button-toggle>
+    </mat-button-toggle-group>
+  </div>
+
+  <mat-autocomplete #auto="matAutocomplete">
+    @for (r of filteredRooms(); track r.id) {
+      <mat-option (onSelectionChange)="onSelect(r.id!)" [value]="r.name ?? r.id">
+        <div class="opt">
+          <span class="name">{{ r.name || r.id }}</span>
+          <span class="meta">
+            <mat-chip-set aria-label="meta">
+              <mat-chip [color]="stateColor(r.state)" appearance="outlined" class="chip">
+                {{ r.state || '—' }}
+              </mat-chip>
+              <mat-chip appearance="outlined" class="chip">{{ r.mode || 'default' }}</mat-chip>
+            </mat-chip-set>
+          </span>
+        </div>
+        <div class="id">{{ r.id }}</div>
+      </mat-option>
+    } @empty {
+      <mat-option [disabled]="true">Aucune room trouvée</mat-option>
+    }
+  </mat-autocomplete>
+
+  <!-- Sélecteur matérialisé -->
+  <mat-form-field appearance="outline" class="w-full">
+    <mat-label>Room</mat-label>
+    <mat-select
+      [value]="value()"
+      (valueChange)="onSelect($event)"
+      panelClass="room-select-panel">
+
+      @for (r of filteredRooms(); track r.id) {
+        <mat-option [value]="r.id">
+          <div class="opt">
+            <span class="name">{{ r.name || r.id }}</span>
+            <span class="meta">
+              <mat-chip-set aria-label="meta">
+                <mat-chip [color]="stateColor(r.state)" appearance="outlined" class="chip">
+                  {{ r.state || '—' }}
+                </mat-chip>
+                <mat-chip appearance="outlined" class="chip">{{ r.mode || 'default' }}</mat-chip>
+              </mat-chip-set>
+            </span>
+          </div>
+          <div class="id">{{ r.id }}</div>
+        </mat-option>
+      } @empty {
+        <mat-option [disabled]="true">Aucune room trouvée</mat-option>
+      }
+    </mat-select>
+
+    <button mat-icon-button matSuffix aria-label="Rafraîchir" (click)="refresh()">
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </mat-form-field>
+
+  <!-- Résumé de la sélection -->
+  @let sel = selectedRoom();
+  @if (sel) {
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>{{ sel?.name || sel?.id }}</mat-card-title>
+        <mat-card-subtitle>{{ sel?.id }}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <mat-chip-set>
+          <mat-chip [color]="stateColor(sel?.state)" appearance="outlined" class="chip">
+            {{ sel?.state || '—' }}
+          </mat-chip>
+          <mat-chip appearance="outlined" class="chip">{{ sel?.mode || 'default' }}</mat-chip>
+        </mat-chip-set>
+      </mat-card-content>
+      <mat-card-actions align="end">
+        <button mat-stroked-button color="primary" (click)="emitCurrent()">Utiliser cette room</button>
+      </mat-card-actions>
+    </mat-card>
+  }
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\room-select\room-select.component.ts
+REL:  src\app\sim\room-select\room-select.component.ts
+────────────────────────────────────────────────────────────
+import {
+  Component, ChangeDetectionStrategy, inject, input, output, signal, computed
+} from '@angular/core';
+import { NgFor, NgIf } from '@angular/common';
+
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule }     from '@angular/material/select';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatInputModule }      from '@angular/material/input';
+import { MatIconModule }       from '@angular/material/icon';
+import { MatButtonModule }     from '@angular/material/button';
+import { MatDividerModule }    from '@angular/material/divider';
+import { MatChipsModule }      from '@angular/material/chips';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatTooltipModule }    from '@angular/material/tooltip';
+import { MatCardModule }       from '@angular/material/card';
+
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs/operators';
+import { MonitorService } from '../../services/monitor.service';
+
+type RoomItem = {
+  id: string;
+  name?: string;
+  mode?: string; // affichage libre
+  state?: 'idle' | 'running' | string;
+  lastEventAt?: any;
+};
+
+type StateFilter = 'all' | 'running' | 'idle';
+type SortBy = 'recent' | 'name';
+
+@Component({
+  selector: 'app-room-select',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    NgFor, NgIf,
+    MatFormFieldModule, MatSelectModule, MatAutocompleteModule,
+    MatInputModule, MatIconModule, MatButtonModule, MatDividerModule,
+    MatChipsModule, MatButtonToggleModule, MatTooltipModule, MatCardModule,
+  ],
+  templateUrl: './room-select.component.html',
+  styleUrls: ['./room-select.component.css'],
+})
+export class RoomSelectComponent {
+  /** Two-way binding: [(value)] */
+  value = input<string>('');
+  valueChange = output<string>();
+
+  /** Recherche + filtres + tri */
+  query = signal<string>('');
+  filter = signal<StateFilter>('all');
+  sortBy = signal<SortBy>('recent');
+
+  private monitor = inject(MonitorService);
+
+  /** rooms$ → RoomItem[] (conversion pour affichage + compat types) */
+  private roomsSig = toSignal(
+    this.monitor.rooms$.pipe(
+      map(rooms => (rooms ?? []).map(r => ({
+        id: r.id!, name: r.name,
+        mode: (r as any).mode as string | undefined,
+        state: r.state, lastEventAt: (r as any).lastEventAt,
+      } satisfies RoomItem)))
+    ),
+    { initialValue: [] as any[] }
   );
 
-  readonly latestEvents$: Observable<(EventItem & { id: string })[]> = collectionData(
-    query(collectionGroup(this.fs, 'events'), orderBy('ts', 'desc'), limit(100)),
-    { idField: 'id' }
-  ) as Observable<(EventItem & { id: string })[]>;
+  /** Liste filtrée + triée */
+  filteredRooms = computed<RoomItem[]>(() => {
+    const q = this.query().trim().toLowerCase();
+    const flt = this.filter();
+    const sort = this.sortBy();
+    let rooms = [...this.roomsSig()];
 
-  readonly dailyStats$: Observable<DailyStats> =
-    docData(doc(this.fs, 'admin/stats')) as Observable<DailyStats>;
+    if (flt !== 'all') rooms = rooms.filter(r => (r.state ?? 'idle') === flt);
 
-  readonly currentHourCount = signal<number>(0);
+    if (q) {
+      rooms = rooms.filter(r => {
+        const hay = `${r.name ?? ''} ${r.id} ${r.mode ?? ''} ${r.state ?? ''}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
 
-  listenHourlyShardSum(hour: string): void {
-    const hourRef = ref(this.rtdb, `counters/tags/hourly/${hour}/shards`);
-    objectVal<Record<string, number> | null>(hourRef)
-      .pipe(
-        map((shards) => {
-          const obj = shards ?? {};
-          return Object.values(obj).reduce((a, b: any) => a + (b || 0), 0);
-        }),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe((sum) => this.currentHourCount.set(sum));
+    if (sort === 'recent') {
+      rooms.sort((a, b) => {
+        const av = a.lastEventAt?.toMillis ? a.lastEventAt.toMillis() : new Date(a.lastEventAt ?? 0).getTime();
+        const bv = b.lastEventAt?.toMillis ? b.lastEventAt.toMillis() : new Date(b.lastEventAt ?? 0).getTime();
+        return (bv || 0) - (av || 0);
+      });
+    } else {
+      rooms.sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
+    }
+
+    return rooms;
+  });
+
+  /** Room sélectionnée (id courant) */
+  selectedRoom = computed<RoomItem | null>(() => {
+    const id = this.value();
+    if (!id) return null;
+    return this.filteredRooms().find(r => r.id === id)
+        ?? (this.roomsSig()).find(r => r.id === id)
+        ?? null;
+  });
+
+  // Actions UI
+  clearQuery() { this.query.set(''); }
+  setFilter(v: StateFilter) { this.filter.set(v); }
+  setSort(v: SortBy) { this.sortBy.set(v); }
+  onSelect(id: string) { this.valueChange.emit(id); }
+  emitCurrent() { if (this.value()) this.valueChange.emit(this.value()); }
+
+  refresh() { this.query.set(this.query()); }
+
+  // Helpers d’affichage
+  stateColor(state?: string): 'primary' | 'warn' | 'accent' | undefined {
+    switch (state) {
+      case 'running': return 'primary';
+      case 'idle':    return 'accent';
+      default:        return undefined;
+    }
   }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\simulator\match-simulator.component.css
+REL:  src\app\sim\simulator\match-simulator.component.css
+────────────────────────────────────────────────────────────
+:host { display:block; padding:16px; }
+.sim-card { max-width: 1000px; margin: 0 auto; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin: 10px 0; }
+.grow { flex: 1 1 auto; }
+.muted { color: #73819a; font-size: 12px; }
+.canvas-wrap { border: 1px solid #223043; border-radius: 12px; overflow: hidden; }
+canvas { width: 100%; height: auto; display: block; background: #10151c; }
+mat-form-field { min-width: 200px; }
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\simulator\match-simulator.component.html
+REL:  src\app\sim\simulator\match-simulator.component.html
+────────────────────────────────────────────────────────────
+<mat-card class="sim-card" appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>Simulation de partie</mat-card-title>
+    <mat-card-subtitle>RTDB bots + positions, TAG via MatchService</mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+
+    @if (!roomId()) {
+      <app-create-room
+        [name]="newRoomName()"
+        (nameChange)="newRoomName.set($event)"
+        (create)="createRoomAndUseIt()">
+      </app-create-room>
+      <mat-divider style="margin:12px 0;"></mat-divider>
+    }
+
+    <app-room-select
+      [value]="roomId()"
+      (valueChange)="roomId.set($event)">
+    </app-room-select>
+
+    <!-- 1) Room -->
+    <app-room-input
+      [roomId]="roomId()"
+      (roomIdChange)="roomId.set($event)"
+      (listen)="listen()"
+      (unlisten)="unlisten()">
+    </app-room-input>
+
+    <!-- 2) Bots -->
+    <app-bots-controls
+      [nbBots]="nbBots()"
+      (nbBotsChange)="nbBots.set($event)"
+      [speed]="speed()"
+      (speedChange)="speed.set($event)"
+      [displayMs]="displayMs"
+      (spawn)="spawnBots()"
+      (start)="start()"
+      (stop)="stop()">
+    </app-bots-controls>
+
+    <!-- 3) TAG -->
+    @if (dots$ | async; as dots) {
+      <app-tag-controls
+        [dots]="dots"
+        [victimUid]="victimUid()"
+        (victimUidChange)="victimUid.set($event)"
+        (simulate)="simulateTag(dots)">
+      </app-tag-controls>
+    }
+
+    <!-- 4) Canvas -->
+    <app-field-canvas
+      [world]="{ minX:-45,maxX:45,minY:-30,maxY:30 }"
+      [bots]="bots()">
+    </app-field-canvas>
+  </mat-card-content>
+</mat-card>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\simulator\match-simulator.component.ts
+REL:  src\app\sim\simulator\match-simulator.component.ts
+────────────────────────────────────────────────────────────
+import { Component, ChangeDetectionStrategy, inject, Injector, signal, effect } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { AsyncPipe } from '@angular/common';
+import { MatCardModule } from '@angular/material/card';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatDividerModule } from '@angular/material/divider';
+
+import { RoomInputComponent } from '../../sim/room-input/room-input.component';
+import { CreateRoomComponent } from '../../sim/create-room/create-room.component';
+import { BotsControlsComponent } from '../../sim/bots-controls/bots-controls.component';
+import { TagControlsComponent } from '../../sim/tag-controls/tag-controls.component';
+import { FieldCanvasComponent } from '../../sim/field-canvas/field-canvas.component';
+import { RoomSelectComponent } from '../../sim/room-select/room-select.component';
+
+import { runInInjectionContext } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
+import { Observable, of } from 'rxjs';
+import { distinctUntilChanged, map, switchMap, filter } from 'rxjs/operators';
+
+import { Database, ref, set, update } from '@angular/fire/database';
+import { MatchService } from '../../services/match.service';
+import { MonitorService } from '../../services/monitor.service';
+import { PositionsService } from '../../services/positions.service';
+import { doc, Firestore, serverTimestamp, writeBatch } from '@angular/fire/firestore';
+
+type BotLocal = { id: string; x: number; y: number; h: number | null };
+export type DotDTO = { x: number; y: number; uid?: string };
+
+@Component({
+  selector: 'app-match-simulator',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    AsyncPipe,
+    MatCardModule, MatSnackBarModule, MatDividerModule,
+    RoomInputComponent, CreateRoomComponent,
+    BotsControlsComponent, TagControlsComponent, FieldCanvasComponent,
+    RoomSelectComponent,
+  ],
+  templateUrl: './match-simulator.component.html',
+  styleUrls: ['./match-simulator.component.css'],
+})
+export class MatchSimulatorComponent {
+  private snack = inject(MatSnackBar);
+  private injector = inject(Injector);
+  private db = inject(Database);
+  private positions = inject(PositionsService);
+  private monitor = inject(MonitorService);
+  private route = inject(ActivatedRoute);
+  private match = inject(MatchService);
+
+  private readonly fs = inject(Firestore);
+  
+  newRoomName = signal<string>('');
+
+  roomId = signal<string>('');
+  nbBots = signal<number>(6);
+  speed = signal<number>(300);
+  victimUid = signal<string | null>(null);
+  bots = signal<BotLocal[]>([]);
+
+  constructor() {
+    effect(() => {
+      const id = this.route.snapshot.paramMap.get('id');
+      if (id) this.roomId.set(id);
+    });
+  }
+
+  dots$: Observable<DotDTO[]> = toObservable(this.roomId).pipe(
+    map(id => (id ?? '').trim()),
+    distinctUntilChanged(),
+    filter(id => !!id.length),
+    switchMap(id => runInInjectionContext(this.injector, () =>
+      this.monitor.liveMap$(id) as Observable<DotDTO[]>
+    )),
+  );
+
+  async createRoomAndUseIt(): Promise<void> {
+    const name = this.newRoomName().trim();
+    if (!name) { this.toast('Donne un nom de room'); return; }
+    try {
+      const { roomId, name: finalName } = await this.match.createRoom(name);
+      this.roomId.set(roomId);
+      this.listen();
+      this.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
+    } catch (e: any) {
+      this.toast(`Création échouée : ${e?.message ?? e}`);
+    }
+  }
+
+  listen(): void {
+    const id = this.roomId().trim();
+    if (!id) return this.toast('Entre un Room ID');
+    this.positions.startListening(id);
+  }
+
+  unlisten(): void {
+    this.positions.stop();
+  }
+
+// Optionnel : normalise en valeurs attendues par les règles
+normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
+  const r = (role ?? '').toLowerCase().trim();
+  if (r === 'hunter' || r === 'chasseur') return (r as any);
+  if (r === 'prey' || r === 'proie') return (r as any);
+  // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
+  return 'prey';
+}
+
+  /**
+   * Spawn N bots et leur **assigne un rôle** :
+   * - RTDB: /bots/{roomId}/{botId} (x,y,t,name,role,type)
+   * - Firestore: /rooms/{roomId}/players/{botId} + rooms/{roomId}.roles[botId]
+   * Compatible avec tes règles (owner requis pour MAJ room.roles).
+   */
+  async spawnBots(role: string = 'prey'): Promise<void> {
+    const id = this.roomId().trim();
+    if (!id) return this.toast('Room ID manquant');
+
+    const bounded = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
+    const count = bounded(this.nbBots() | 0, 1, 50);
+
+    const now = Date.now();
+    const list: BotLocal[] = [];
+
+    // 🔒 rôle normalisé (FR/EN) pour matcher isHunter()
+    const normRole = this.normalizeRole(role);
+
+    // Prépare un batch Firestore pour: players/* + room.roles
+    const batch = writeBatch(this.fs); // this.fs doit être injecté: private fs = inject(Firestore);
+
+    // Promesses RTDB en parallèle
+    const rtdbWrites: Promise<any>[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const botId = `bot-${now}-${i}`;
+      const x = this.rnd(-20, 20);
+      const y = this.rnd(-20, 20);
+      list.push({ id: botId, x, y, h: null });
+
+      // 1) RTDB: trace légère temps réel (UI/monitor)
+      rtdbWrites.push(
+        set(ref(this.db, `bots/${id}/${botId}`), {
+          x, y, t: Date.now(),
+          name: `Bot ${i + 1}`,
+          role: normRole,     // le même rôle logique
+          type: 'bot'         // pour distinguer dans l’UI si besoin
+        })
+      );
+
+      // 2) Firestore: doc player (clés whitelisteées par tes règles)
+      const pRef = doc(this.fs, `rooms/${id}/players/${botId}`);
+      batch.set(pRef, {
+        uid: botId,
+        displayName: `🤖 Bot ${i + 1}`,
+        isConnected: false,
+        ready: true,
+        x, y,
+        lastUpdate: serverTimestamp(),
+        role: normRole      // utile si ton UI lit player.role
+      }, { merge: true });
+
+      // 3) Firestore: map des rôles dans la room (source de vérité recommandée)
+      const rRef = doc(this.fs, `rooms/${id}`);
+      // NB: writeBatch n’autorise pas les "merge field paths" directement en set sans options.
+      // On passe par update field path via set + merge ou set() global. Ici on regroupe en un seul set final,
+      // mais le plus simple: un update par bot :
+      batch.set(rRef, { roles: { [botId]: normRole } } as any, { merge: true });
+    }
+
+    // Exécutions
+    await Promise.all(rtdbWrites); // RTDB
+    await batch.commit();          // Firestore
+
+    // État local
+    this.bots.update(b => [...b, ...list]);
+    this.toast(`${count} bot${count > 1 ? 's' : ''} créé${count > 1 ? 's' : ''} (${normRole})`);
+  }
+
+  start(): void {
+    const id = this.roomId().trim();
+    if (!id) return this.toast('Room ID manquant');
+
+    const bots = this.bots();
+    if (!bots.length) return this.toast('Spawn des bots d’abord');
+
+    const tick = Math.max(80, this.speed());
+    const WORLD = { minX: -45, maxX: 45, minY: -30, maxY: 30 };
+
+    for (let i = 0; i < bots.length; i++) {
+      if (bots[i].h != null) continue;
+      const h = window.setInterval(async () => {
+        bots[i].x = this.clamp(bots[i].x + this.rnd(-1, 1), WORLD.minX, WORLD.maxX);
+        bots[i].y = this.clamp(bots[i].y + this.rnd(-1, 1), WORLD.minY, WORLD.maxY);
+        await update(ref(this.db, `bots/${id}/${bots[i].id}`), {
+          x: bots[i].x, y: bots[i].y, t: Date.now(),
+        });
+      }, tick + ((i % 3) * 70));
+      bots[i] = { ...bots[i], h };
+    }
+
+    this.bots.set([...bots]);
+    this.toast('Mouvements démarrés');
+  }
+
+  stop(): void {
+    const bots = this.bots();
+    bots.forEach(b => {
+      if (b.h != null) {
+        clearInterval(b.h);
+        b.h = null;
+      }
+    });
+    this.bots.set([...bots]);
+    this.toast('Mouvements stoppés');
+  }
+
+  async simulateTag(dots: DotDTO[]): Promise<void> {
+    const id = this.roomId().trim();
+    if (!id) return this.toast('Room ID manquant');
+    if (!dots?.length) return this.toast('Pas de cibles');
+
+    const victim = this.victimUid() || dots[0].uid;
+    const target = victim ? dots.find(d => d.uid === victim) : undefined;
+    if (!target || !target.uid) return this.toast('Cible invalide');
+
+    try {
+      await this.match.emitTag(id, target.x, target.y, target.uid);
+      this.toast(`TAG → ${target.uid.slice(0, 6)}…`);
+    } catch (e: any) {
+      if (e?.retryInMs) this.toast(`${e.message} (dans ${Math.ceil(e.retryInMs / 1000)}s)`);
+      else this.toast(`TAG refusé : ${e?.message ?? e}`);
+    }
+  }
+
+  // utils
+  displayMs = (v: number | null): string => `${v ?? 0} ms`;
+  private toast = (m: string): void => { this.snack.open(m, 'OK', { duration: 1800 }); };
+  private rnd(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  private clamp(v: number, a: number, b: number): number { return Math.max(a, Math.min(b, v)); }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\tag-controls\tag-controls.component.html
+REL:  src\app\sim\tag-controls\tag-controls.component.html
+────────────────────────────────────────────────────────────
+<div class="row">
+  <mat-form-field appearance="outline" style="min-width:260px">
+    <mat-label>Victime pour TAG</mat-label>
+    <!-- version SANS boucle: on propose seulement la première cible si présente -->
+    @if (dots().length) {
+      <mat-select [value]="victimUid()"
+                  (selectionChange)="victimUidChange.emit($event.value)">
+        <mat-option [value]="dots()[0].uid">
+          {{ dots()[0].uid }} — ({{ dots()[0].x }}, {{ dots()[0].y }})
+        </mat-option>
+      </mat-select>
+    } @else {
+      <mat-select disabled>
+        <mat-option>Aucune cible</mat-option>
+      </mat-select>
+    }
+  </mat-form-field>
+
+  <button mat-stroked-button (click)="simulate.emit()">
+    <mat-icon>bolt</mat-icon>
+    Simuler un TAG
+  </button>
+
+  <span class="muted">NB: il faut être “chasseur” et avoir les règles Firestore ok.</span>
+</div>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\tag-controls\tag-controls.component.ts
+REL:  src\app\sim\tag-controls\tag-controls.component.ts
+────────────────────────────────────────────────────────────
+import { Component, input, output } from '@angular/core';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+
+
+@Component({
+  selector: 'app-tag-controls',
+  standalone: true,
+  imports: [MatFormFieldModule, MatSelectModule, MatButtonModule, MatIconModule],
+  templateUrl: './tag-controls.component.html'
+})
+export class TagControlsComponent {
+  dots = input<any[]>([]);
+  victimUid = input<string | null>(null);
+  victimUidChange = output<string | null>();
+  simulate = output<void>();
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\utils\auth-helpers.js
+REL:  src\app\utils\auth-helpers.js
+────────────────────────────────────────────────────────────
+/**
+ * Retourne un UID raccourci (6 premiers caractères).
+ * @param {string} uid
+ * @returns {string}
+ */
+export function shortUid(uid) {
+  return typeof uid === 'string' && uid.length > 6 ? uid.slice(0, 6) : uid;
+}
+
+/**
+ * Détermine s'il existe une claim admin (robuste si objet nul).
+ * @param {{ claims?: Record<string, unknown> } | null | undefined} tokenResult
+ * @returns {boolean}
+ */
+export function hasAdminClaim(tokenResult) {
+  return !!(tokenResult && tokenResult.claims && tokenResult.claims['admin']);
 }
 
 
@@ -16926,7 +19635,7 @@ REL:  src\environnement\environment.development.ts
   firebase: {
      apiKey: "AIzaSyCNOZ0-VK2yKemAJFcHvqaULQSr9IKKf8I",
     authDomain: "tag-cartesien.firebaseapp.com",
-    databaseURL: 'http://127.0.0.1:9000?ns=tag-cartesien',
+    databaseURL: 'http://127.0.0.1:9000?ns=tag-cartesien-default-rtdb',
     projectId: "tag-cartesien",
     storageBucket: "tag-cartesien.firebasestorage.app",
     messagingSenderId: "586700802661",
@@ -17098,6 +19807,9 @@ body {
   background: #0f1c14;
   color: #e8f5e9;
 }
+
+html, body { height: 100%; }
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
 
 
 ────────────────────────────────────────────────────────────

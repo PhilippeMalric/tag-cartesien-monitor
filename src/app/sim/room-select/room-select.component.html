@@ -1,0 +1,108 @@
+<!-- src/app/sim/room-select/room-select.component.html -->
+<div class="room-select">
+
+  <!-- Ligne de recherche + filtres -->
+  <div class="toolbar">
+    <mat-form-field appearance="outline" class="grow">
+      <mat-label>Rechercher une room</mat-label>
+      <input matInput
+             [matAutocomplete]="auto"
+             [value]="query()"
+             (input)="query.set(($any($event.target)).value)"
+             placeholder="Nom, ID, mode…"
+             autocomplete="off">
+      @if (query()) {
+        <button matSuffix mat-icon-button aria-label="Effacer" (click)="clearQuery()">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+
+    <mat-button-toggle-group class="filter" [value]="filter()" (change)="setFilter($event.value)">
+      <mat-button-toggle value="all"     matTooltip="Toutes"><mat-icon>all_inclusive</mat-icon></mat-button-toggle>
+      <mat-button-toggle value="running" matTooltip="En cours"><mat-icon>play_circle</mat-icon></mat-button-toggle>
+      <mat-button-toggle value="idle"    matTooltip="Au repos"><mat-icon>pause_circle</mat-icon></mat-button-toggle>
+    </mat-button-toggle-group>
+
+    <mat-button-toggle-group class="sort" [value]="sortBy()" (change)="setSort($event.value)">
+      <mat-button-toggle value="recent" matTooltip="Plus récents d'abord"><mat-icon>schedule</mat-icon></mat-button-toggle>
+      <mat-button-toggle value="name"   matTooltip="Trier par nom"><mat-icon>sort_by_alpha</mat-icon></mat-button-toggle>
+    </mat-button-toggle-group>
+  </div>
+
+  <mat-autocomplete #auto="matAutocomplete">
+    @for (r of filteredRooms(); track r.id) {
+      <mat-option (onSelectionChange)="onSelect(r.id!)" [value]="r.name ?? r.id">
+        <div class="opt">
+          <span class="name">{{ r.name || r.id }}</span>
+          <span class="meta">
+            <mat-chip-set aria-label="meta">
+              <mat-chip [color]="stateColor(r.state)" appearance="outlined" class="chip">
+                {{ r.state || '—' }}
+              </mat-chip>
+              <mat-chip appearance="outlined" class="chip">{{ r.mode || 'default' }}</mat-chip>
+            </mat-chip-set>
+          </span>
+        </div>
+        <div class="id">{{ r.id }}</div>
+      </mat-option>
+    } @empty {
+      <mat-option [disabled]="true">Aucune room trouvée</mat-option>
+    }
+  </mat-autocomplete>
+
+  <!-- Sélecteur matérialisé -->
+  <mat-form-field appearance="outline" class="w-full">
+    <mat-label>Room</mat-label>
+    <mat-select
+      [value]="value()"
+      (valueChange)="onSelect($event)"
+      panelClass="room-select-panel">
+
+      @for (r of filteredRooms(); track r.id) {
+        <mat-option [value]="r.id">
+          <div class="opt">
+            <span class="name">{{ r.name || r.id }}</span>
+            <span class="meta">
+              <mat-chip-set aria-label="meta">
+                <mat-chip [color]="stateColor(r.state)" appearance="outlined" class="chip">
+                  {{ r.state || '—' }}
+                </mat-chip>
+                <mat-chip appearance="outlined" class="chip">{{ r.mode || 'default' }}</mat-chip>
+              </mat-chip-set>
+            </span>
+          </div>
+          <div class="id">{{ r.id }}</div>
+        </mat-option>
+      } @empty {
+        <mat-option [disabled]="true">Aucune room trouvée</mat-option>
+      }
+    </mat-select>
+
+    <button mat-icon-button matSuffix aria-label="Rafraîchir" (click)="refresh()">
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </mat-form-field>
+
+  <!-- Résumé de la sélection -->
+  @let sel = selectedRoom();
+  @if (sel) {
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>{{ sel?.name || sel?.id }}</mat-card-title>
+        <mat-card-subtitle>{{ sel?.id }}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <mat-chip-set>
+          <mat-chip [color]="stateColor(sel?.state)" appearance="outlined" class="chip">
+            {{ sel?.state || '—' }}
+          </mat-chip>
+          <mat-chip appearance="outlined" class="chip">{{ sel?.mode || 'default' }}</mat-chip>
+        </mat-chip-set>
+      </mat-card-content>
+      <mat-card-actions align="end">
+        <button mat-stroked-button color="primary" (click)="emitCurrent()">Utiliser cette room</button>
+      </mat-card-actions>
+    </mat-card>
+  }
+</div>

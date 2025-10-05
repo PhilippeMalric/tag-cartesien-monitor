@@ -1,44 +1,112 @@
-<mat-sidenav-container class="layout">
+<mat-sidenav-container class="layout" autosize>
+  <!-- Side nav -->
+  <mat-sidenav
+    #drawer
+    class="sidenav"
+    mode="side"
+    [opened]="opened()"
+    (openedChange)="opened.set($event)"
+    (backdropClick)="opened.set(false)"
+    role="navigation"
+    aria-label="Menu principal">
 
-  
+    <!-- En-tête du menu -->
+    <mat-toolbar class="sidenav-toolbar" color="primary">
+      <div class="brand">
+        <mat-icon aria-hidden="true">sports_kabaddi</mat-icon>
+        <span>Tag Monitor</span>
+      </div>
+      <span class="spacer"></span>
+      <!-- bouton fermer/ouvrir -->
+      <button mat-icon-button (click)="toggle()" aria-label="Fermer le menu">
+        <mat-icon>close</mat-icon>
+      </button>
+    </mat-toolbar>
 
-  <mat-sidenav class="sidenav" mode="side" [opened]="opened()">
-    <div class="brand">
-      <mat-icon>sports_kabaddi</mat-icon>
-      <span>Tag Monitor</span>
-    </div>
-
+    <!-- Navigation -->
     <mat-nav-list>
+      <h3 matSubheader>Navigation</h3>
+
       <a mat-list-item
          *ngFor="let item of nav"
          [routerLink]="item.link"
-         [routerLinkActive]="'active'"
-         [routerLinkActiveOptions]="{ exact: item.exact ?? false }">
+         routerLinkActive="active"
+         [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
+         [attr.aria-current]="(item.exact ? 'page' : null)">
         <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
         <div matListItemTitle>{{ item.label }}</div>
       </a>
+
+      <!-- Section Simulation -->
+      <mat-divider></mat-divider>
+      <h3 matSubheader>Simulation</h3>
+
+      <a mat-list-item
+         [routerLink]="'/simulate'"
+         routerLinkActive="active"
+         [routerLinkActiveOptions]="{ exact: true }"
+         matTooltip="Ouvrir le simulateur">
+        <mat-icon matListItemIcon>smart_toy</mat-icon>
+        <div matListItemTitle>Ouvrir le simulateur</div>
+        <div matListItemLine class="muted">Créer des bots, tester les TAGs</div>
+      </a>
+
+      <!-- Accès direct à une room -->
+      <div class="sim-quick">
+        <mat-form-field appearance="outline" class="sim-field" subscriptSizing="dynamic">
+          <mat-label>Room ID</mat-label>
+          <input
+            #simRoomId
+            matInput
+            placeholder="ex: DEMO-123"
+            (keyup.enter)="goSim(simRoomId.value)" />
+          <button
+            mat-icon-button
+            matSuffix
+            type="button"
+            aria-label="Ouvrir la room"
+            (click)="goSim(simRoomId.value)"
+            matTooltip="Aller à /simulate/:id">
+            <mat-icon>arrow_outward</mat-icon>
+          </button>
+          <mat-hint>Entrer un identifiant de room</mat-hint>
+        </mat-form-field>
+
+        <button
+          mat-stroked-button
+          type="button"
+          class="sim-btn"
+          (click)="goSim(simRoomId.value)">
+          Ouvrir
+        </button>
+      </div>
     </mat-nav-list>
   </mat-sidenav>
 
+  <!-- Content -->
   <mat-sidenav-content class="content">
     <mat-toolbar color="primary" class="topbar">
+      <!-- bouton ouvrir/fermer -->
       <button mat-icon-button (click)="toggle()" class="menu-btn" aria-label="Menu">
         <mat-icon>menu</mat-icon>
       </button>
+
       <span class="title">Tag Cartésien — Monitoring</span>
       <span class="spacer"></span>
+
       <a mat-icon-button routerLink="/rooms" aria-label="Rooms">
         <mat-icon>meeting_room</mat-icon>
       </a>
       <a mat-icon-button routerLink="/events" aria-label="Events">
         <mat-icon>history</mat-icon>
       </a>
-      <!-- <button (click)="addAdmin()">addAdmin</button> -->
+      <a mat-icon-button routerLink="/simulate" aria-label="Simulation">
+        <mat-icon>smart_toy</mat-icon>
+      </a>
     </mat-toolbar>
 
     <main class="page">
-      <router-outlet />
+      <router-outlet></router-outlet>
     </main>
   </mat-sidenav-content>
-
 </mat-sidenav-container>

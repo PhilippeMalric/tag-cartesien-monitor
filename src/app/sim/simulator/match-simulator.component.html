@@ -1,0 +1,59 @@
+<mat-card class="sim-card" appearance="outlined">
+  <mat-card-header>
+    <mat-card-title>Simulation de partie</mat-card-title>
+    <mat-card-subtitle>RTDB bots + positions, TAG via MatchService</mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+
+    @if (!roomId()) {
+      <app-create-room
+        [name]="newRoomName()"
+        (nameChange)="newRoomName.set($event)"
+        (create)="createRoomAndUseIt()">
+      </app-create-room>
+      <mat-divider style="margin:12px 0;"></mat-divider>
+    }
+
+    <app-room-select
+      [value]="roomId()"
+      (valueChange)="roomId.set($event)">
+    </app-room-select>
+
+    <!-- 1) Room -->
+    <app-room-input
+      [roomId]="roomId()"
+      (roomIdChange)="roomId.set($event)"
+      (listen)="listen()"
+      (unlisten)="unlisten()">
+    </app-room-input>
+
+    <!-- 2) Bots -->
+    <app-bots-controls
+      [nbBots]="nbBots()"
+      (nbBotsChange)="nbBots.set($event)"
+      [speed]="speed()"
+      (speedChange)="speed.set($event)"
+      [displayMs]="displayMs"
+      (spawn)="spawnBots()"
+      (start)="start()"
+      (stop)="stop()">
+    </app-bots-controls>
+
+    <!-- 3) TAG -->
+    @if (dots$ | async; as dots) {
+      <app-tag-controls
+        [dots]="dots"
+        [victimUid]="victimUid()"
+        (victimUidChange)="victimUid.set($event)"
+        (simulate)="simulateTag(dots)">
+      </app-tag-controls>
+    }
+
+    <!-- 4) Canvas -->
+    <app-field-canvas
+      [world]="{ minX:-45,maxX:45,minY:-30,maxY:30 }"
+      [bots]="bots()">
+    </app-field-canvas>
+  </mat-card-content>
+</mat-card>

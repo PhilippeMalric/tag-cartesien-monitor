@@ -15,6 +15,9 @@ export interface RoomDoc {
   updatedAt?: any;
   roles:any[];
   roundEndAtMs?:any
+  hunterUid?:string;
+  name?: string;
+  lastEventAt?: any;  // Timestamp
 }
 
 export type RoomVM = RoomDoc & {

@@ -1,0 +1,148 @@
+/* ===========
+   Thème & tokens
+   =========== */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+
+  --bg: #f7f9fc;
+  --text: #0f1220;
+  --muted: #5b6474;
+  --panel: #ffffff;
+  --border: #e6eaf2;
+
+  --code-bg: #eef2fb;
+  --code-text: #16223a;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --text: #e8eef9;
+  --muted: #aab2c0;
+  --panel: #171a21;
+  --border: #232a36;
+
+  --code-bg: #1b2230;
+  --code-text: #d9e6ff;
+}
+
+/* Respecte les préférences système si tu n’utilises pas data-theme */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --text: #e8eef9;
+    --muted: #aab2c0;
+    --panel: #171a21;
+    --border: #232a36;
+
+    --code-bg: #1b2230;
+    --code-text: #d9e6ff;
+  }
+}
+
+/* ===========
+   Base
+   =========== */
+:host {
+  display: block;
+  padding: var(--space-4);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+h2 {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+}
+
+/* ===========
+   Carte Material
+   =========== */
+.login-card {
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+mat-card-subtitle {
+  color: var(--muted);
+}
+
+/* ===========
+   Layouts utilitaires
+   =========== */
+.row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.grow { flex: 1 1 auto; }
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ===========
+   Boutons / Chips
+   =========== */
+button[mat-button],
+button[mat-raised-button],
+button[mat-stroked-button] {
+  border-radius: var(--radius-sm);
+}
+
+mat-chip {
+  border-radius: 999px !important;
+}
+
+/* ===========
+   Code & UID
+   =========== */
+code {
+  background: var(--code-bg);
+  color: var(--code-text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.uid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.2px;
+  user-select: all;
+}
+
+/* ===========
+   Petites améliorations d’accessibilité
+   =========== */
+button[mat-button]:focus-visible,
+button[mat-raised-button]:focus-visible,
+button[mat-stroked-button]:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ===========
+   Responsif
+   =========== */
+@media (max-width: 640px) {
+  :host { padding: var(--space-2); }
+  .login-card { margin: 0 var(--space-1); }
+}

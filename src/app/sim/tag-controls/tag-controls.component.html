@@ -1,0 +1,25 @@
+<div class="row">
+  <mat-form-field appearance="outline" style="min-width:260px">
+    <mat-label>Victime pour TAG</mat-label>
+    <!-- version SANS boucle: on propose seulement la première cible si présente -->
+    @if (dots().length) {
+      <mat-select [value]="victimUid()"
+                  (selectionChange)="victimUidChange.emit($event.value)">
+        <mat-option [value]="dots()[0].uid">
+          {{ dots()[0].uid }} — ({{ dots()[0].x }}, {{ dots()[0].y }})
+        </mat-option>
+      </mat-select>
+    } @else {
+      <mat-select disabled>
+        <mat-option>Aucune cible</mat-option>
+      </mat-select>
+    }
+  </mat-form-field>
+
+  <button mat-stroked-button (click)="simulate.emit()">
+    <mat-icon>bolt</mat-icon>
+    Simuler un TAG
+  </button>
+
+  <span class="muted">NB: il faut être “chasseur” et avoir les règles Firestore ok.</span>
+</div>

@@ -1,0 +1,12 @@
+<div class="row">
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Room ID</mat-label>
+    <input matInput
+           [value]="roomId()"
+           (input)="roomIdChange.emit(($any($event.target).value || '').trim())"
+           placeholder="ex: DEMO-123">
+  </mat-form-field>
+
+  <button mat-stroked-button (click)="listen.emit()">Listen</button>
+  <button mat-stroked-button (click)="unlisten.emit()">Unlisten</button>
+</div>

@@ -2,18 +2,18 @@
 
   <h2>Room {{ room.id }}</h2>
   <p>Statut: {{ room.state }} — Mode: {{ room.mode }}</p>
+  <button (click)="confirmDelete()" class="danger">🗑️ Supprimer cette room</button>
 
   <h3>Carte temps réel</h3>
+  <!-- ✅ IMPORTANT: on passe l'id de la room à la carte -->
   <app-room-live-map></app-room-live-map>
 
-  @if (room.lastEventAt) {
-    <p>Dernier évènement: {{ room.lastEventAt | date:'short' }}</p>
-  }
 
-  <h3>Joueurs</h3>
-  <ul>
-    <li *ngFor="let uid of room.uids">{{ uid }}</li>
-  </ul>
+ 
+
+  <pre class="muted" style="white-space:pre-wrap">
+  @if (room?.players) { {{ room.players | json }} } @else { no room.players }
+</pre>
 
   <!-- ====== BOTS (monitor -> RTDB) ====== -->
   <h3>Bots (monitor → RTDB)</h3>
@@ -21,37 +21,43 @@
     <button (click)="addBot()">+ Ajouter un bot</button>
 
     <ul>
-      <li *ngFor="let b of (bots$ | async)"
+      @for (b of (bots$ | async); track b.id) {
+        <li
           [class.selected]="b.id === selectedBotId"
           (click)="selectBot(b.id)">
-        <strong>{{ b.displayName || b.id }}</strong>
-        — ({{ b.x ?? 0 }}, {{ b.y ?? 0 }})
-        <span *ngIf="b.id === selectedBotId"> ← sélectionné</span>
-      </li>
+          <strong>{{ b.displayName || b.id }}</strong>
+          — ({{ b.x ?? 0 }}, {{ b.y ?? 0 }})
+          @if (b.id === selectedBotId) { <span> ← sélectionné</span> }
+        </li>
+      }
     </ul>
 
-    <div class="controls" *ngIf="selectedBotId as id">
-      <p>Contrôles pour: <code>{{ id }}</code></p>
-      <div class="pad">
-        <button (click)="step(0,-1)">↑</button>
-        <div>
-          <button (click)="step(-1,0)">←</button>
-          <button (click)="step(1,0)">→</button>
+    @if (selectedBotId; as id) {
+      <div class="controls">
+        <p>Contrôles pour: <code>{{ id }}</code></p>
+        <div class="pad">
+          <button (click)="step(0,-1)">↑</button>
+          <div>
+            <button (click)="step(-1,0)">←</button>
+            <button (click)="step(1,0)">→</button>
+          </div>
+          <button (click)="step(0,1)">↓</button>
         </div>
-        <button (click)="step(0,1)">↓</button>
+        <button (click)="toggleRandom()">Aléatoire ON/OFF</button>
       </div>
-      <button (click)="toggleRandom()">Aléatoire ON/OFF</button>
-    </div>
+    }
   </div>
 
-<h3>Positions (live)</h3>
-<ul>
-  <li *ngFor="let p of (positions$ | async)">
-    <code [style.opacity]="p.isBot ? 0.7 : 1">{{ p.id }}</code>
-    — ({{ p.x | number:'1.0-2' }}, {{ p.y | number:'1.0-2' }})
-    <span *ngIf="p.isBot">[bot]</span>
-  </li>
-</ul>
+  <h3>Positions (live ou spawn)</h3>
+  <ul>
+    @for (p of (positions$ | async); track p.id) {
+      <li>
+        <code [style.opacity]="p.isBot ? 0.7 : 1">{{ p.id }}</code>
+        — ({{ p.x | number:'1.0-2' }}, {{ p.y | number:'1.0-2' }})
+        @if (p.isBot) { <span>[bot]</span> }
+      </li>
+    }
+  </ul>
 
   <!-- ====== DIAGNOSTIC ====== -->
   <h3>Diagnostic droits</h3>
@@ -66,6 +72,7 @@
   </div>
 
   <p><a [routerLink]="['/rooms']">← Retour</a></p>
+
 } @else {
   <p>Room introuvable.</p>
 }

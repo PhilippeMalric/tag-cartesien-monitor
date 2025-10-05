@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { authState, Auth as FirebaseAuth } from '@angular/fire/auth';
 import { Firestore, doc, docData, collection, collectionData, updateDoc } from '@angular/fire/firestore';
-import { addDoc, getDoc, increment, limit, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { addDoc, getDoc, increment, limit, orderBy, query, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { Observable, firstValueFrom, map, shareReplay } from 'rxjs';
 import { MyPlayerDoc,  TagEvent } from '../../../../tag-cartesien/src/app/pages/play/play.models';
 import { RoomDoc } from '../models/room.model';
@@ -134,5 +134,73 @@ export class MatchService {
     return collectionData(q, { idField: 'uid' }) as any;
   }
 
+ 
+  /** Crée une room + 2 participants.
+   *  - Le user courant est "chasseur"
+   *  - Un invité synthétique est "chassé"
+   *  Renvoie { roomId, name, ownerUid, guestUid } pour usage UI.
+   */
+  async createRoom(name: string): Promise<{ roomId: string; name: string; ownerUid: string; guestUid: string }> {
+    const ownerUid = this.uid;
+    if (!ownerUid) throw new Error('auth-required');
 
+    const finalName = (name ?? '').trim() || 'Partie';
+
+    // 1) Crée le doc room
+    const roomRef = await addDoc(collection(this.fs, 'rooms'), {
+      name: finalName,
+      ownerUid,
+      state: 'idle',
+      mode: 'default',
+      targetScore: 10,
+      timeLimit: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    const roomId = roomRef.id;
+
+    // 2) Prépare les 2 joueurs
+    const guestUid = `guest-${Math.random().toString(36).slice(2, 8)}`;
+
+    const p1: MyPlayerDoc = {
+      role: 'chasseur',
+      score: 0,
+      spawn: { x: 0, y: 0 },
+      iFrameUntilMs: 0,
+      cantTagUntilMs: 0,
+    };
+
+    const p2: MyPlayerDoc = {
+      role: 'chassé',
+      score: 0,
+      spawn: { x: 10, y: 0 },
+      iFrameUntilMs: 0,
+      cantTagUntilMs: 0,
+    };
+
+    // 3) Batch: players + roles + updatedAt
+    const batch = writeBatch(this.fs);
+
+    // players subcollection
+    batch.set(doc(this.fs, `rooms/${roomId}/players/${ownerUid}`), p1);
+    batch.set(doc(this.fs, `rooms/${roomId}/players/${guestUid}`), p2);
+
+    // roles map (utilisé par MonitorService.normalizeRoles) + updatedAt
+    batch.set(
+      doc(this.fs, 'rooms', roomId),
+      {
+        roles: {
+          [ownerUid]: 'chasseur',
+          [guestUid]: 'chassé',
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    await batch.commit();
+
+    // ➜ On renvoie aussi le nom pour afficher "Room “X” créée"
+    return { roomId, name: finalName, ownerUid, guestUid };
+  }
 }

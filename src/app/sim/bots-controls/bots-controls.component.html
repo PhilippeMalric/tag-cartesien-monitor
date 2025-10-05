@@ -1,0 +1,33 @@
+<div class="row">
+  <mat-form-field appearance="outline" style="max-width:160px">
+    <mat-label>Nombre de bots</mat-label>
+    <input matInput type="number" min="1" max="50"
+           [value]="nbBots()"
+           (input)="nbBotsChange.emit(+($any($event.target).value || 0))">
+  </mat-form-field>
+
+  <div class="row">
+    <mat-icon>speed</mat-icon>
+    <mat-slider min="80" max="800" step="20" [displayWith]="displayMs()">
+      <input matSliderThumb
+             [value]="speed()"
+             (valueChange)="speedChange.emit($event)" />
+    </mat-slider>
+    <span>{{ speed() }} ms</span>
+  </div>
+
+  <span class="grow"></span>
+
+  <button mat-raised-button color="primary" (click)="spawn.emit()">
+    <mat-icon>smart_toy</mat-icon>
+    Spawn bots
+  </button>
+  <button mat-raised-button color="accent" (click)="start.emit()">
+    <mat-icon>play_arrow</mat-icon>
+    Start
+  </button>
+  <button mat-raised-button (click)="stop.emit()">
+    <mat-icon>stop</mat-icon>
+    Stop
+  </button>
+</div>

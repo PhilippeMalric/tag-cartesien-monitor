@@ -1,56 +1,273 @@
-/* styles optionnels */
+/* ============ Thème & variables ============ */
 :host {
+  --bg: #0f1116;
+  --panel: #171a21;
+  --panel-2: #1e2230;
+  --text: #e6eaf2;
+  --muted: #a7b0c0;
+  --primary: #6aa2ff;
+  --primary-2: #3f85ff;
+  --danger: #ff6262;
+  --accent: #7ce7b1;
+  --ring: rgba(106, 162, 255, 0.45);
+  --sep: rgba(255, 255, 255, 0.08);
+
   display: block;
   padding: 16px;
+  color: var(--text);
+  background: transparent; // hérite du global
 }
 
-h2 { margin: 0 0 8px; }
+/* Clair automatique */
+@media (prefers-color-scheme: light) {
+  :host {
+    --bg: #f7f9fc;
+    --panel: #ffffff;
+    --panel-2: #f3f6fb;
+    --text: #142032;
+    --muted: #516072;
+    --primary: #2b6cff;
+    --primary-2: #2057d6;
+    --danger: #d43b3b;
+    --accent: #1bbf83;
+    --ring: rgba(43, 108, 255, 0.35);
+    --sep: rgba(0, 0, 0, 0.06);
+  }
+}
 
+/* ============ Helpers ============ */
+.muted { color: var(--muted); }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--sep);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.02);
+}
+.stretch { width: 100%; }
+
+/* ============ Titres & layout ============ */
+h2 {
+  margin: 0 0 10px;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+
+h3 {
+  margin: 18px 0 10px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+
+section {
+  @extend .card;
+  padding: 14px;
+  margin: 14px 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+
+  @media (min-width: 900px) {
+    grid-template-columns: 1.15fr .85fr;
+  }
+}
+
+/* ============ Boutons ============ */
+button {
+  --btn-bg: var(--panel-2);
+  --btn-fg: var(--text);
+  --btn-bd: var(--sep);
+
+  appearance: none;
+  border: 1px solid var(--btn-bd);
+  background: linear-gradient(180deg, var(--btn-bg), color-mix(in oklab, var(--btn-bg) 88%, black));
+  color: var(--btn-fg);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .15s ease, border-color .15s ease, background .2s ease;
+
+  &:hover {
+    border-color: color-mix(in oklab, var(--btn-bd) 50%, var(--primary));
+    box-shadow: 0 6px 16px rgba(0,0,0,.18), 0 0 0 4px var(--ring);
+    transform: translateY(-1px);
+  }
+  &:active { transform: translateY(0); box-shadow: none; }
+  &:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ring); }
+}
+
+button.primary {
+  --btn-bg: var(--primary);
+  --btn-fg: #fff;
+  --btn-bd: transparent;
+  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+
+  &:hover { box-shadow: 0 8px 20px color-mix(in oklab, var(--primary) 35%, transparent), 0 0 0 4px var(--ring); }
+}
+
+button.danger {
+  --btn-bg: var(--danger);
+  --btn-fg: #fff;
+  --btn-bd: transparent;
+  background: linear-gradient(180deg, var(--danger), color-mix(in oklab, var(--danger) 85%, black));
+
+  &:hover { box-shadow: 0 8px 20px color-mix(in oklab, var(--danger) 35%, transparent), 0 0 0 4px rgba(255, 98, 98, .35); }
+}
+
+/* ============ Carte temps réel ============ */
+app-room-live-map {
+  display: block;
+  @extend .card;
+  padding: 8px;
+}
+
+app-room-live-map .map {
+  width: 100%;
+  height: 420px;
+  display: block;
+  border-radius: 10px;
+  background:
+    linear-gradient(0deg, var(--panel-2), var(--panel-2)),
+    repeating-linear-gradient(0deg, transparent, transparent 28px, var(--sep) 28px, var(--sep) 29px),
+    repeating-linear-gradient(90deg, transparent, transparent 28px, var(--sep) 28px, var(--sep) 29px);
+  border: 1px solid var(--sep);
+}
+
+/* ============ Listes génériques ============ */
+ul.reset {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.list {
+  @extend .card;
+  padding: 8px;
+}
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  transition: background .15s ease, transform .05s ease;
+
+  &:hover {
+    background: color-mix(in oklab, var(--panel) 85%, white 15%);
+    transform: translateY(-1px);
+  }
+}
+
+/* ============ Bots ============ */
 .bots {
   margin-top: 16px;
 
-  ul {
-    list-style: none;
-    padding-left: 0;
-  }
+  ul { @extend .reset; }
 
   li {
     cursor: pointer;
-    padding: 4px 6px;
-    border-radius: 6px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--sep);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: color-mix(in oklab, var(--panel) 92%, black 8%);
+    transition: background .2s ease, border-color .2s ease, transform .06s ease;
+
+    strong { font-weight: 700; letter-spacing: .2px; }
+
+    &:hover {
+      background: color-mix(in oklab, var(--panel) 86%, var(--primary) 14%);
+      border-color: color-mix(in oklab, var(--sep) 50%, var(--primary) 50%);
+      transform: translateY(-1px);
+    }
   }
 
   li.selected {
-    background: rgba(255, 255, 255, 0.08);
+    background: color-mix(in oklab, var(--panel) 75%, var(--primary) 25%);
+    border-color: color-mix(in oklab, var(--sep) 20%, var(--primary) 80%);
+    box-shadow: 0 0 0 3px var(--ring) inset;
   }
 
   .pad {
     display: inline-flex;
     flex-direction: column;
-    gap: 4px;
-    margin: 8px 0;
+    gap: 6px;
+    margin: 10px 0;
 
-    button { min-width: 36px; }
+    button { min-width: 40px; }
 
     div {
       display: flex;
-      gap: 4px;
+      gap: 6px;
       justify-content: center;
     }
   }
 }
 
+/* ============ Positions (liste) ============ */
+.positions {
+  @extend .list;
+
+  li code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--sep);
+  }
+  li .meta {
+    color: var(--muted);
+    font-size: .92rem;
+  }
+}
+
+/* ============ Diagnostic ============ */
 .diag {
   margin-top: 20px;
-  padding: 10px;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--panel) 86%, var(--accent) 14%);
+  border: 1px dashed color-mix(in oklab, var(--accent) 35%, transparent);
 
-  ul {
-    margin: 8px 0 0;
-  }
+  ul { margin: 8px 0 0; padding-left: 18px; }
+  button + button { margin-left: 8px; }
+}
 
-  button + button {
-    margin-left: 8px;
+/* ============ Petits badges & états ============ */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 999px;
+  font-weight: 700; font-size: .8rem; letter-spacing: .25px;
+  border: 1px solid var(--sep);
+  background: var(--panel-2);
+}
+.badge.success { color: #0a7a53; background: color-mix(in oklab, var(--accent) 30%, var(--panel-2)); }
+.badge.warn    { color: #7a4a0a; background: color-mix(in oklab, #ffcf7a 30%, var(--panel-2)); }
+.badge.danger  { color: #7a0a0a; background: color-mix(in oklab, var(--danger) 30%, var(--panel-2)); }
+
+/* ============ Liens ============ */
+a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in oklab, var(--primary) 55%, transparent);
+  transition: color .15s ease, border-color .15s ease;
+  &:hover {
+    color: var(--primary-2);
+    border-color: var(--primary-2);
   }
+}
+
+/* ============ Petites animations d’apparition ============ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card, .list, .bots li, app-room-live-map {
+  animation: fadeInUp .25s ease both;
 }

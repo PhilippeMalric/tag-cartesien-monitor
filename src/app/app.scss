@@ -53,3 +53,34 @@ mat-nav-list a.active {
 @media (min-width: 960px) {
   .menu-btn { display: none; }
 }
+
+.sim-quick {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 16px 16px;
+}
+.sim-field { flex: 1 1 auto; min-width: 140px; }
+.sim-btn { white-space: nowrap; }
+.sidenav-toolbar {
+  display: flex;
+  align-items: center;
+  padding-inline: 8px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.spacer { flex: 1 1 auto; }
+
+.sim-quick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 16px;
+}
+.sim-field { flex: 1 1 auto; min-width: 160px; }
+.sim-btn { white-space: nowrap; }
+.muted { opacity: .75; font-size: .9em; }

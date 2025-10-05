@@ -3,6 +3,7 @@ import { adminGuard } from './guards/admin.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'rooms', pathMatch: 'full' },
+
   {
     path: 'rooms',
     loadComponent: () => import('./pages/rooms.component').then(m => m.RoomsComponent),
@@ -15,7 +16,7 @@ export const routes: Routes = [
   },
   {
     path: 'events',
-    loadComponent: () => import('./pages/events.component').then(m => m.EventsComponent),
+    loadComponent: () => import('./pages/events/events.component').then(m => m.EventsComponent),
     canActivate: [adminGuard]
   },
   {
@@ -23,9 +24,24 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/dashboard.component').then(m => m.DashboardComponent),
     canActivate: [adminGuard]
   },
+
+  // 👇 Ajout du simulateur (lazy)
+  {
+    path: 'simulate',
+    loadComponent: () =>
+      import('./sim/simulator/match-simulator.component').then(m => m.MatchSimulatorComponent),
+    canActivate: [adminGuard]
+  },
+  {
+    path: 'simulate/:id',
+    loadComponent: () =>
+      import('./sim/simulator/match-simulator.component').then(m => m.MatchSimulatorComponent),
+    canActivate: [adminGuard]
+  },
+
   {
     path: 'login',
-    loadComponent: () => import('./pages/login.component').then(m => m.LoginComponent),
+    loadComponent: () => import('./pages/login/login.component').then(m => m.LoginComponent),
   },
   {
     path: 'forbidden',

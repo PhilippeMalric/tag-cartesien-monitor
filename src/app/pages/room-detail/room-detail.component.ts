@@ -1,30 +1,29 @@
-import { Component, inject } from '@angular/core';
-import { AsyncPipe, DatePipe, NgIf, NgFor, DecimalPipe } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { AsyncPipe, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-import { MonitorService } from '../../services/monitor.service';
-import { RoomVM } from '../../models/room.model';
+import { MonitorService,  PosDTO } from '../../services/monitor.service';
+import { RoomDoc, RoomVM } from '../../models/room.model';
 
 import { Database, ref, objectVal, set, update, get } from '@angular/fire/database';
 import { Auth } from '@angular/fire/auth';
 import { map } from 'rxjs/operators';
-import { Observable } from 'rxjs';
+import { firstValueFrom, Observable } from 'rxjs';
 
 // Carte temps réel (présente sur la page)
 import { RoomLiveMapComponent } from './room-live-map/room-live-map.component';
 
-// ✅ Ajout: service des positions pour voir les coordonnées en direct
-import { PositionsService } from '../../services/positions.service';
-
 type Bot = { id: string; x?: number; y?: number; displayName?: string; random?: boolean };
-
-// (optionnel) type pratique si tu veux typer finement la liste de positions
 type PositionItem = { id: string; isBot: boolean; x: number; y: number };
 
 @Component({
   standalone: true,
   selector: 'app-room-detail',
-  imports: [AsyncPipe, DatePipe, NgIf, NgFor, RouterLink, RoomLiveMapComponent,DecimalPipe],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    AsyncPipe, DatePipe, DecimalPipe, JsonPipe, RouterLink,
+    RoomLiveMapComponent,
+  ],
   templateUrl: './room-detail.component.html',
 })
 export class RoomDetailComponent {
@@ -32,49 +31,43 @@ export class RoomDetailComponent {
   private monitor = inject(MonitorService);
   private db = inject(Database);
   private auth = inject(Auth);
+  private router = inject(Router);
 
-  // ✅ Ajout: positions live
-  private positionsSvc = inject(PositionsService);
+  readonly roomId: string = this.route.snapshot.paramMap.get('id')!;
 
-  readonly roomId = this.route.snapshot.paramMap.get('id')!;
+  // VM / Room
+  readonly room$: Observable<RoomDoc> =
+    this.monitor.roomById$(this.roomId) as any;
 
-  // Room VM fournie par le service (avec uids + lastEventAt déjà mappé)
-  room$ = this.monitor.roomById$(this.roomId) as Observable<RoomVM | undefined>;
-
-  // ===== POSITIONS (live) =====
-  /**
-   * On réutilise l’écoute déjà démarrée par <app-room-live-map>.
-   * Si tu veux que la liste fonctionne même sans la carte, tu peux appeler
-   * positionsSvc.startListening(this.roomId) ici.
-   */
-  positions$: Observable<PositionItem[]> = this.positionsSvc.positions$.pipe(
-    map(mapObj =>
-      Object.entries(mapObj ?? {}).map(([id, p]) => ({
-        id,
-        isBot: id.startsWith('bot-'),
-        x: Number(p?.x ?? 0),
-        y: Number(p?.y ?? 0),
-      }))
-      // joueurs d'abord, puis bots
-      .sort((a, b) => Number(a.isBot) - Number(b.isBot))
-    )
-  );
+  // Positions (live) transformées pour la liste
+  readonly positions$: Observable<PositionItem[]> =
+    this.monitor.liveMap$(this.roomId).pipe(
+      map((dots: PosDTO[]) =>
+        (dots ?? [])
+          .map((d: PosDTO) => ({
+            id: d.uid ?? '',
+            isBot: (d.uid ?? '').startsWith('bot-'),
+            x: d.x,
+            y: d.y,
+          }))
+          .sort((a, b) => Number(a.isBot) - Number(b.isBot))
+      )
+    );
 
   // ===== BOTS (RTDB: bots/{roomId}/{botId}) =====
-  // On lit le noeud comme un objet -> tableau (id, ...val)
-  bots$: Observable<Bot[]> = objectVal<Record<string, Omit<Bot, 'id'>> | null>(
+  readonly bots$: Observable<Bot[]> = objectVal<Record<string, Omit<Bot, 'id'>> | null>(
     ref(this.db, `bots/${this.roomId}`)
   ).pipe(
     map(rec => {
-      const obj = rec || {};
+      const obj = rec ?? {};
       return Object.keys(obj).map(id => ({ id, ...obj[id] }));
     })
   );
 
-  // On garde une copie locale pour step()/toggleRandom()
+  /** cache local pour step() / toggleRandom() */
   private latestBots: Record<string, Bot> = {};
+
   constructor() {
-    // abonne une seule fois pour le cache local
     this.bots$.subscribe(list => {
       const next: Record<string, Bot> = {};
       for (const b of list) next[b.id] = b;
@@ -85,33 +78,30 @@ export class RoomDetailComponent {
   selectedBotId: string | null = null;
   selectBot(id: string) { this.selectedBotId = id; }
 
-  async addBot() {
+  async addBot(): Promise<void> {
     const id =
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID().slice(0, 8)
+      typeof crypto !== 'undefined' && (crypto as any)?.randomUUID
+        ? (crypto as any).randomUUID().slice(0, 8)
         : Math.random().toString(36).slice(2, 10);
 
     const path = ref(this.db, `bots/${this.roomId}/${id}`);
-    await set(path, {
-      x: 0, y: 0, random: false,
-      displayName: `Bot ${id}`
-    });
+    await set(path, { x: 0, y: 0, random: false, displayName: `Bot ${id}` });
     this.selectedBotId = id;
   }
 
-  async step(dx: number, dy: number) {
+  async step(dx: number, dy: number): Promise<void> {
     const id = this.selectedBotId;
     if (!id) return;
-    const current = this.latestBots[id] || {};
+    const current = this.latestBots[id] ?? {};
     const x = (current.x ?? 0) + dx;
     const y = (current.y ?? 0) + dy;
     await update(ref(this.db, `bots/${this.roomId}/${id}`), { x, y });
   }
 
-  async toggleRandom() {
+  async toggleRandom(): Promise<void> {
     const id = this.selectedBotId;
     if (!id) return;
-    const current = this.latestBots[id] || {};
+    const current = this.latestBots[id] ?? {};
     await update(ref(this.db, `bots/${this.roomId}/${id}`), { random: !current.random });
   }
 
@@ -123,20 +113,15 @@ export class RoomDetailComponent {
     canWriteBots: false,
   };
 
-  async runDiag() {
-    // auth uid
+  async runDiag(): Promise<void> {
     this.diag.uid = this.auth.currentUser?.uid || '';
-
-    // ownerUid depuis RTDB roomsMeta/{roomId}
     const metaSnap = await get(ref(this.db, `roomsMeta/${this.roomId}`));
     this.diag.ownerUid = (metaSnap.val() && metaSnap.val().ownerUid) || '';
-
-    // isAdminRTDB (flag optionnel sous users/{uid}/admin:true)
     const adminSnap = await get(ref(this.db, `users/${this.diag.uid}/admin`));
     this.diag.isAdminRTDB = !!adminSnap.val();
   }
 
-  async tryWriteTest() {
+  async tryWriteTest(): Promise<void> {
     try {
       const testRef = ref(this.db, `bots/${this.roomId}/__test__`);
       await set(testRef, { t: Date.now() });
@@ -144,8 +129,27 @@ export class RoomDetailComponent {
     } catch {
       this.diag.canWriteBots = false;
     } finally {
-      // best effort: on nettoie le test si possible
       try { await set(ref(this.db, `bots/${this.roomId}/__test__`), null); } catch {}
+    }
+  }
+
+  async confirmDelete(): Promise<void> {
+    const room = await firstValueFrom(this.room$);
+    const roomId = (room as RoomDoc | RoomVM | undefined)?.id;
+    if (!roomId) return;
+
+    const ok = window.confirm(
+      `Supprimer définitivement la room ${roomId} ?\n` +
+      `Sous-collections 'events' et 'players' incluses.`
+    );
+    if (!ok) return;
+
+    try {
+      await this.monitor.deleteRoom(roomId);
+      try { await set(ref(this.db, `bots/${roomId}`), null); } catch {}
+      this.router.navigateByUrl('/rooms');
+    } catch (e) {
+      alert('Échec de suppression : ' + (e as Error).message);
     }
   }
 }

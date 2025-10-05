@@ -1,0 +1,8 @@
+:host { display:block; padding:16px; }
+.sim-card { max-width: 1000px; margin: 0 auto; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin: 10px 0; }
+.grow { flex: 1 1 auto; }
+.muted { color: #73819a; font-size: 12px; }
+.canvas-wrap { border: 1px solid #223043; border-radius: 12px; overflow: hidden; }
+canvas { width: 100%; height: auto; display: block; background: #10151c; }
+mat-form-field { min-width: 200px; }

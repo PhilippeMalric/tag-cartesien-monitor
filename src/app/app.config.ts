@@ -1,6 +1,6 @@
 
 // Firebase
-import { initializeApp } from 'firebase/app';
+import { FirebaseApp, initializeApp } from 'firebase/app';
 import { provideFirebaseApp } from '@angular/fire/app';
 import { provideAuth, getAuth, connectAuthEmulator } from '@angular/fire/auth';
 import { provideFirestore, getFirestore, connectFirestoreEmulator } from '@angular/fire/firestore';
@@ -24,6 +24,7 @@ console.log('[ENV]', environment);
 console.log('[shouldUseEmulators]', shouldUseEmulators, 'host=', IS_BROWSER ? window.location.hostname : '(ssr)');
 
 
+let theApp: FirebaseApp;
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -32,15 +33,32 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptorsFromDi()),
     provideClientHydration(),
     provideAnimations(),
-    provideFirebaseApp(() => initializeApp(environment.firebase)),
+    provideFirebaseApp(() => {
+      // ⚠️ projectId doit matcher celui de ton émulateur
+      theApp = initializeApp({
+        ...environment.firebase,
+        // databaseURL doit rester l’URL firebaseio.com (pas l’émulateur)
+      });
+      console.log('[FB] app initialized', theApp.options);
+      return theApp;
+    }),
     provideAuth(() => {
       const auth = getAuth();
-      if (shouldUseEmulators) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+      if (shouldUseEmulators) {
+        connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+        console.log('[Auth] emulator @ 127.0.0.1:9099');
+      }
+
       return auth;
     }),
-    provideFirestore(() => {
-      const fs = getFirestore();
-      if (shouldUseEmulators) connectFirestoreEmulator(fs, '127.0.0.1', 8080);
+    // 3) Firestore
+     provideFirestore(() => {
+      const fs = getFirestore(theApp);
+      if (shouldUseEmulators) {
+        // Essayez 'localhost' si 127.0.0.1 pose souci
+        connectFirestoreEmulator(fs, '127.0.0.1', 8080);
+        console.log('[Firestore] emulator 127.0.0.1:8080');
+      }
       return fs;
     }),
     provideDatabase(() => {
@@ -48,11 +66,7 @@ export const appConfig: ApplicationConfig = {
       //if (shouldUseEmulators) connectDatabaseEmulator(db, '127.0.0.1', 9000);
       return db;
     }),
-    provideFunctions(() => {
-      const fns = getFunctions(undefined, 'us-central1');
-      if (shouldUseEmulators) connectFunctionsEmulator(fns, '127.0.0.1', 5001);
-      return fns;
-    }),
+  
     provideStorage(() => {
       const st = getStorage();
       if (shouldUseEmulators) connectStorageEmulator(st, '127.0.0.1', 9199);

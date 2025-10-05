@@ -1,0 +1,7 @@
+<h2>Derniers événements</h2>
+@let events = (events$ | async) ?? [];
+  
+@if (events.length === 0) {
+  <p class="muted">Aucun événement pour le moment.</p>
+} 
+

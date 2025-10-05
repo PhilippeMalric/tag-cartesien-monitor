@@ -1,0 +1,33 @@
+.room-select {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.grow { width: 100%; }
+.w-full { width: 100%; }
+
+.filter, .sort {
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.name { font-weight: 600; }
+.meta { display: inline-flex; gap: .5rem; align-items: center; opacity: .9; }
+
+.chip { margin-right: .25rem; }
+.id { font-size: 12px; opacity: .6; }
+
+mat-card { margin-top: .25rem; }

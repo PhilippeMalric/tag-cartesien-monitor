@@ -1,0 +1,13 @@
+<div class="row">
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Nom de la room</mat-label>
+    <input matInput
+           [value]="name()"
+           (input)="nameChange.emit(($any($event.target).value || '').trim())"
+           placeholder="ex: Partie du soir">
+  </mat-form-field>
+
+  <button mat-raised-button color="primary" (click)="create.emit()">
+    Créer la room
+  </button>
+</div>
