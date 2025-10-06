@@ -184,5 +184,9 @@ export class MonitorActionsService {
     await call({ roomId, uid: targetUid });
     }
 
-
+ async setRoomOwner(roomId: string, newOwnerUid: string): Promise<void> {
+    const call = httpsCallable<{roomId:string; newOwnerUid:string}, any>(this.fns, 'setRoomOwner');
+    await call({ roomId, newOwnerUid });
+  }
+  
 }

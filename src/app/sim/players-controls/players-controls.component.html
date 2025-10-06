@@ -41,121 +41,143 @@
 
     <mat-divider class="m12"></mat-divider>
 
-   <!-- Toolbar de la liste -->
-<div class="list-toolbar">
-  <mat-form-field appearance="outline" class="w-search">
-    <mat-label>Rechercher un joueur</mat-label>
-    <input matInput placeholder="Nom ou UID"
-           [value]="query()"
-           (input)="query.set(($any($event.target)?.value ?? '').trim())">
-    <button mat-icon-button matSuffix type="button" aria-label="Effacer"
-            *ngIf="query()"
-            (click)="query.set('')">
-      <mat-icon>close</mat-icon>
-    </button>
-  </mat-form-field>
-
-  <mat-button-toggle-group [value]="sortBy()" (change)="sortBy.set($any($event.value))" class="w-sort" appearance="legacy">
-    <mat-button-toggle value="role"><mat-icon>group</mat-icon> Rôle</mat-button-toggle>
-    <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
-  </mat-button-toggle-group>
-</div>
-
-<!-- Liste améliorée -->
-<mat-nav-list class="list list--compact">
-  @for (p of filteredPlayersSig(); track $index) {
-    <a mat-list-item class="row" [class.hunter]="isHunter(p)">
-      <!-- Avatar -->
-      <div matListItemIcon class="avatar" [class.hunter]="isHunter(p)">
-        {{ initials(p?.displayName, ((p?.uid || '').slice(0,2)).toUpperCase()) }}
-      </div>
-
-      <!-- Corps compact -->
-      <div matListItemTitle class="body body--compact">
-        <span class="name" [title]="p?.displayName || p?.uid">
-          {{ p?.displayName || p?.uid || '—' }}
-        </span>
-
-        <!-- tags compacts -->
-        <div class="meta">
-          <mat-icon class="role-ico" [matTooltip]="isHunter(p) ? 'Chasseur' : 'Proie'">
-            {{ isHunter(p) ? 'shield_person' : 'hiking' }}
-          </mat-icon>
-          @if (p?.score !== undefined) {
-            <span class="pill" aria-label="score">S: {{ p?.score }}</span>
-          }
-          <span class="uid mono" [matTooltip]="p?.uid || '—'">
-            #{{ (p?.uid || '').slice(0,6) }}
-          </span>
-        </div>
-
-        <!-- Toggle rôle -->
-        <mat-button-toggle-group
-          class="toggle-dense"
-          [value]="isHunter(p) ? 'hunter' : 'prey'"
-          [disabled]="!p?.uid || busyRoleUid() === p?.uid"
-          (change)="p?.uid && setRole($any(p?.uid), $any($event.value))">
-          <mat-button-toggle value="hunter" [matTooltip]="'Chasseur'">
-            <mat-icon>shield_person</mat-icon>
-          </mat-button-toggle>
-          <mat-button-toggle value="prey" [matTooltip]="'Proie'">
-            <mat-icon>hiking</mat-icon>
-          </mat-button-toggle>
-        </mat-button-toggle-group>
-
-        @if (busyRoleUid() === p?.uid) {
-          <mat-progress-spinner mode="indeterminate" diameter="16" class="spinner"></mat-progress-spinner>
-        }
-
-        <!-- Actions -->
-        <button mat-icon-button
-                [disabled]="!p?.uid"
-                [matMenuTriggerFor]="playerMenu"
-                (click)="openMenuFor(p?.uid)"
-                aria-label="Actions joueur">
-        <mat-icon>more_vert</mat-icon>
+    <!-- Toolbar de la liste -->
+    <div class="list-toolbar">
+      <mat-form-field appearance="outline" class="w-search">
+        <mat-label>Rechercher un joueur</mat-label>
+        <input matInput placeholder="Nom ou UID"
+               [value]="query()"
+               (input)="query.set(($any($event.target)?.value ?? '').trim())">
+        <button mat-icon-button matSuffix type="button" aria-label="Effacer"
+                *ngIf="query()"
+                (click)="query.set('')">
+          <mat-icon>close</mat-icon>
         </button>
-      </div>
-    </a>
-    <mat-divider inset></mat-divider>
-  }
+      </mat-form-field>
 
-  @if (filteredPlayersSig().length === 0) {
-    <div class="empty">
-      <mat-icon>group_off</mat-icon>
-      <span>Aucun joueur ne correspond.</span>
+      <mat-button-toggle-group [value]="sortBy()" (change)="sortBy.set($any($event.value))" class="w-sort" appearance="legacy">
+        <mat-button-toggle value="role"><mat-icon>group</mat-icon> Rôle</mat-button-toggle>
+        <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
+      </mat-button-toggle-group>
     </div>
-  }
-</mat-nav-list>
 
-<!-- Menu global -->
-<mat-menu #playerMenu="matMenu" (closed)="currentUid.set('')">
-  <button mat-menu-item
-          (click)="setRole(currentUid(), 'hunter')"
-          [disabled]="busyRoleUid() === currentUid() || !currentUid()">
-    <mat-icon>shield_person</mat-icon>
-    <span>Définir chasseur</span>
-  </button>
+    <!-- Liste améliorée -->
+    <mat-nav-list class="list list--compact">
+      @for (p of filteredPlayersSig(); track $index) {
+        <a
+          mat-list-item
+          class="row"
+          [ngClass]="{ 'hunter': isHunter(p), 'is-owner': isOwner(p?.uid) }"
+        >
+          <!-- Avatar -->
+          <div
+            matListItemIcon
+            class="avatar"
+            [ngClass]="{ 'hunter': isHunter(p), 'is-owner': isOwner(p?.uid) }"
+          >
+            {{ initials(p?.displayName, ((p?.uid || '').slice(0,2)).toUpperCase()) }}
+          </div>
 
-  <button mat-menu-item
-          (click)="setRole(currentUid(), 'prey')"
-          [disabled]="busyRoleUid() === currentUid() || !currentUid()">
-    <mat-icon>hiking</mat-icon>
-    <span>Définir proie</span>
-  </button>
+          <!-- Corps compact -->
+          <div matListItemTitle class="body body--compact">
+            <span class="name" [title]="p?.displayName || p?.uid">
+              {{ p?.displayName || p?.uid || '—' }}
+            </span>
 
-  <mat-divider></mat-divider>
+            <!-- badge owner -->
+            <span class="owner-badge" *ngIf="isOwner(p?.uid)">
+              <mat-icon inline matTooltip="Owner">verified_user</mat-icon>
+              Owner
+            </span>
 
-  <button mat-menu-item
-          (click)="copyUid(currentUid())"
-          [disabled]="!currentUid()">
-    <mat-icon>content_copy</mat-icon>
-    <span>Copier l’UID</span>
-  </button>
+            <!-- tags compacts -->
+            <div class="meta">
+              <mat-icon class="role-ico" [matTooltip]="isHunter(p) ? 'Chasseur' : 'Proie'">
+                {{ isHunter(p) ? 'shield_person' : 'hiking' }}
+              </mat-icon>
+              @if (p?.score !== undefined) {
+                <span class="pill" aria-label="score">S: {{ p?.score }}</span>
+              }
+              <span class="uid mono" [matTooltip]="p?.uid || '—'">
+                #{{ (p?.uid || '').slice(0,6) }}
+              </span>
+            </div>
 
-    <button mat-menu-item (click)="remove2()" matMenuClose>
+            <!-- Toggle rôle -->
+            <mat-button-toggle-group
+              class="toggle-dense"
+              [value]="isHunter(p) ? 'hunter' : 'prey'"
+              [disabled]="!p?.uid || busyRoleUid() === p?.uid"
+              (change)="p?.uid && setRole($any(p?.uid), $any($event.value))">
+              <mat-button-toggle value="hunter" [matTooltip]="'Chasseur'">
+                <mat-icon>shield_person</mat-icon>
+              </mat-button-toggle>
+              <mat-button-toggle value="prey" [matTooltip]="'Proie'">
+                <mat-icon>hiking</mat-icon>
+              </mat-button-toggle>
+            </mat-button-toggle-group>
+
+            @if (busyRoleUid() === p?.uid) {
+              <mat-progress-spinner mode="indeterminate" diameter="16" class="spinner"></mat-progress-spinner>
+            }
+
+            <!-- Actions -->
+            <button mat-icon-button
+                    [disabled]="!p?.uid"
+                    [matMenuTriggerFor]="playerMenu"
+                    (click)="openMenuFor(p?.uid)"
+                    aria-label="Actions joueur">
+              <mat-icon>more_vert</mat-icon>
+            </button>
+          </div>
+        </a>
+        <mat-divider inset></mat-divider>
+      }
+
+      @if (filteredPlayersSig().length === 0) {
+        <div class="empty">
+          <mat-icon>group_off</mat-icon>
+          <span>Aucun joueur ne correspond.</span>
+        </div>
+      }
+    </mat-nav-list>
+
+    <!-- Menu global -->
+    <mat-menu #playerMenu="matMenu" (closed)="currentUid.set('')">
+      <button mat-menu-item
+              (click)="setRole(currentUid(), 'hunter')"
+              [disabled]="busyRoleUid() === currentUid() || !currentUid()">
+        <mat-icon>shield_person</mat-icon>
+        <span>Définir chasseur</span>
+      </button>
+
+      <button mat-menu-item
+              (click)="setRole(currentUid(), 'prey')"
+              [disabled]="busyRoleUid() === currentUid() || !currentUid()">
+        <mat-icon>hiking</mat-icon>
+        <span>Définir proie</span>
+      </button>
+
+      <mat-divider></mat-divider>
+
+      <button mat-menu-item
+              (click)="copyUid(currentUid())"
+              [disabled]="!currentUid()">
+        <mat-icon>content_copy</mat-icon>
+        <span>Copier l’UID</span>
+      </button>
+
+      <button mat-menu-item (click)="remove2()" matMenuClose>
         <mat-icon color="warn">delete</mat-icon>
         <span class="warn">Retirer</span>
-    </button>
-</mat-menu>
+      </button>
 
+      <button mat-menu-item
+              (click)="makeOwner(currentUid())"
+              [disabled]="isOwner(currentUid()) || !currentUid()">
+        <mat-icon>verified_user</mat-icon>
+        <span>Définir comme owner</span>
+      </button>
+    </mat-menu>
+  </mat-card-content>
+</mat-card>

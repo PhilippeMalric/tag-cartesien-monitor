@@ -1,7 +1,7 @@
 import {
   Component, ChangeDetectionStrategy, inject, input, signal, computed
 } from '@angular/core';
-import { AsyncPipe, JsonPipe, NgFor, NgIf, TitleCasePipe } from '@angular/common';
+import { AsyncPipe, JsonPipe, NgClass, NgFor, NgIf, TitleCasePipe } from '@angular/common';
 
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -26,8 +26,13 @@ import { MonitorActionsService } from '../../services/monitor-actions.service';
 import { PlayerDoc } from '../../models/monitor.models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
+// ⬇️ NEW: Firestore direct pour lire ownerUid si besoin
+import { Firestore, doc, docData } from '@angular/fire/firestore';
+import { of } from 'rxjs';
+
 type RoleSimple = 'hunter' | 'prey';
 type SortKey = 'none' | 'role' | 'name';
+
 @Component({
   selector: 'app-players-controls',
   standalone: true,
@@ -39,7 +44,7 @@ type SortKey = 'none' | 'role' | 'name';
     MatCardModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatButtonModule, MatIconModule, MatChipsModule, MatDividerModule,
     MatListModule, MatTooltipModule, MatButtonToggleModule,
-    MatMenuModule, MatBadgeModule, MatProgressSpinnerModule,JsonPipe
+    MatMenuModule, MatBadgeModule, MatProgressSpinnerModule, JsonPipe, NgClass
   ],
   templateUrl: './players-controls.component.html',
   styleUrls: ['./players-controls.component.scss'],
@@ -47,25 +52,29 @@ type SortKey = 'none' | 'role' | 'name';
 export class PlayersControlsComponent {
   /** Room ciblée */
   roomId = input<string>('');
-snack = inject(MatSnackBar);
+  snack = inject(MatSnackBar);
+
   // Formulaire "ajout joueur"
   displayName = signal<string>('');
   role = signal<RoleSimple>('prey');
 
   // Filtres / tri pour la liste
-  query = signal<string>('');                       // recherche texte
-  sortBy = signal<SortKey>('none');         // tri: rôle ou alphabétique
+  query = signal<string>('');                 // recherche texte
+  sortBy = signal<SortKey>('none');           // tri: rôle ou alphabétique
 
   // UI states
   busyAdd = signal<boolean>(false);
   busyRoleUid = signal<string | null>(null);
   busyRemoveUid = signal<string | null>(null);
 
-currentUid = signal<string>('');
-openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
+  currentUid = signal<string>('');
+  openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
 
   private read = inject(MonitorReadService);
   private act = inject(MonitorActionsService);
+
+  // ⬇️ NEW: Firestore direct pour lire la room.ownerUid
+  private fs = inject(Firestore);
 
   /** Flux des joueurs de la room */
   readonly playersSig = toSignal(
@@ -73,10 +82,19 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
       switchMap(id => this.read.players$(id || '')),
       map(list => (list ?? []) as PlayerDoc[])
     ),
-    {
-      initialValue: [] as PlayerDoc[],
-      requireSync: false, // désambiguïe l'overload async de toSignal
-    }
+    { initialValue: [] as PlayerDoc[], requireSync: false }
+  );
+
+  // ⬇️ NEW: ownerUid de la room (source de vérité)
+  readonly ownerUidSig = toSignal(
+    toObservable(this.roomId).pipe(
+      switchMap(id => id
+        ? docData(doc(this.fs, 'rooms', id))
+        : of(null)
+      ),
+      map((room: any) => (room?.ownerUid as string | undefined) ?? '')
+    ),
+    { initialValue: '' }
   );
 
   /** Liste filtrée + triée (utilisée par le template) */
@@ -87,26 +105,26 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     let arr = [...this.playersSig()].filter(Boolean);
 
     if (q) {
-        arr = arr.filter(p => {
+      arr = arr.filter(p => {
         const hay = `${p.displayName ?? ''} ${p.uid ?? ''}`.toLowerCase();
         return hay.includes(q);
-        });
+      });
     }
 
     if (sort === 'role') {
-        arr.sort((a, b) => {
+      arr.sort((a, b) => {
         const ah = this.isHunter(a) ? 0 : 1;
         const bh = this.isHunter(b) ? 0 : 1;
         if (ah !== bh) return ah - bh;
         return (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? '');
-        });
+      });
     } else if (sort === 'name') {
-        arr.sort((a, b) => (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? ''));
+      arr.sort((a, b) => (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? ''));
     }
-    // sort === 'none' → pas de tri, on garde l’ordre d’origine
+    // sort === 'none' → pas de tri
 
     return arr;
-    });
+  });
 
   /** Petits compteurs pour l’en-tête */
   readonly counts = computed(() => {
@@ -147,61 +165,70 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     }
   }
 
-    async remove(uid?: string): Promise<void> {
-        const roomId = (this.roomId() || '').trim();
-        const target = (uid ?? this.currentUid()).trim();
+  async remove(uid?: string): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    const target = (uid ?? this.currentUid()).trim();
 
-        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
-        if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
-        if (!confirm('Retirer ce joueur ?')) return;
+    if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+    if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
+    if (!confirm('Retirer ce joueur ?')) return;
 
-        this.busyRemoveUid.set(target);
-        try {
-            await this.act.removePlayer(roomId, target);
-            this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
-        } catch (e: any) {
-            console.error('remove failed', e);
-            this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
-        } finally {
-            this.busyRemoveUid.set(null);
-            this.currentUid.set('');
-        }
+    this.busyRemoveUid.set(target);
+    try {
+      await this.act.removePlayer(roomId, target); // version callable côté service (admin)
+      this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
+    } catch (e: any) {
+      console.error('remove failed', e);
+      const code = e?.code as string | undefined;
+      const msg  = code === 'permission-denied'
+        ? 'Accès refusé (admin/owner requis).'
+        : code === 'not-found'
+          ? 'Salle introuvable.'
+          : (e?.message ?? e);
+      this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
+    } finally {
+      this.busyRemoveUid.set(null);
+      this.currentUid.set('');
     }
+  }
 
-    async remove2(uid?: string): Promise<void> {
-        const roomId = (this.roomId() || '').trim();
-        const target = (uid ?? this.currentUid()).trim();
+  // (Tu peux supprimer remove2 si inutile, sinon garde-la comme alias admin)
+  async remove2(uid?: string): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    const target = (uid ?? this.currentUid()).trim();
 
-        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
-        if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
-        if (!confirm('Retirer ce joueur ?')) return;
+    if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+    if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
+    if (!confirm('Retirer ce joueur ?')) return;
 
-        this.busyRemoveUid.set(target);
-        try {
-            // 👉 Appel admin à la callable removePlayer (Cloud Functions)
-            await this.act.removePlayerAdmin(roomId, target);
-
-            this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
-        } catch (e: any) {
-            // e est un Firebase HttpsError côté client
-            const code = e?.code as string | undefined; // p.ex. 'permission-denied', 'not-found'
-            const msg  = code === 'permission-denied'
-            ? 'Accès refusé (admin/owner requis).'
-            : code === 'not-found'
-                ? 'Salle introuvable.'
-                : (e?.message ?? e);
-
-            console.error('remove failed', code, e);
-            this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
-        } finally {
-            this.busyRemoveUid.set(null);
-            this.currentUid.set('');
-        }
+    this.busyRemoveUid.set(target);
+    try {
+      await this.act.removePlayerAdmin(roomId, target);
+      this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
+    } catch (e: any) {
+      const code = e?.code as string | undefined;
+      const msg  = code === 'permission-denied'
+        ? 'Accès refusé (admin/owner requis).'
+        : code === 'not-found'
+          ? 'Salle introuvable.'
+          : (e?.message ?? e);
+      console.error('remove failed', code, e);
+      this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
+    } finally {
+      this.busyRemoveUid.set(null);
+      this.currentUid.set('');
     }
-
+  }
 
   // Utils
   isHunter(p: any) { return normRole(p?.role) === 'hunter'; }
+
+  // ⬇️ NEW: savoir si un uid est owner de la room
+  isOwner(uid?: string) {
+    const o = this.ownerUidSig();
+    return !!uid && !!o && uid === o;
+  }
+
   initials(name?: string, fallback = '??') {
     const s = (name ?? '').trim();
     if (!s) return fallback;
@@ -209,17 +236,31 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     return parts.join('') || fallback;
   }
 
-
-    copyUid(uid?: string) {
+  copyUid(uid?: string) {
     const v = uid ?? this.currentUid();
     if (!v) return;
     navigator.clipboard?.writeText(v).catch(() => {});
+  }
+
+  async makeOwner(uid: string): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    if (!roomId || !uid) { this.snack.open('Paramètres manquants', 'OK', { duration: 2000 }); return; }
+    if (!confirm('Définir ce joueur comme propriétaire de la room ?')) return;
+
+    this.busyRoleUid.set(uid);
+    try {
+      await this.act.setRoomOwner(roomId, uid);
+      this.snack.open('Owner mis à jour', 'OK', { duration: 1800 });
+    } catch (e: any) {
+      console.error('set owner failed', e);
+      this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
+    } finally {
+      this.busyRoleUid.set(null);
     }
-  
+  }
 }
 
 function normRole(r?: any): RoleSimple {
   const v = String(r ?? '').toLowerCase().trim();
   return v === 'hunter' || v === 'chasseur' ? 'hunter' : 'prey';
 }
-

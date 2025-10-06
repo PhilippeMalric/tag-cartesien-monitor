@@ -15907,7 +15907,6 @@ import { MatDividerModule }   from '@angular/material/divider';
 
 import { Database, ref, serverTimestamp, set } from '@angular/fire/database';
 import { FormsModule } from '@angular/forms';
-import { doc } from 'firebase/firestore';
 import { Firestore, setDoc } from '@angular/fire/firestore';
 
 type NavItem = { label: string; icon: string; link: string; exact?: boolean };
@@ -16046,6 +16045,11 @@ export const appConfig: ApplicationConfig = {
       const st = getStorage();
       if (shouldUseEmulators) connectStorageEmulator(st, '127.0.0.1', 9199);
       return st;
+    }),
+     provideFunctions(() => {
+      const fns = getFunctions(theApp, 'northamerica-northeast1');
+      if (shouldUseEmulators) connectFunctionsEmulator(fns, '127.0.0.1', 5001);
+      return fns;
     }),
   ]
 };
@@ -18559,8 +18563,7 @@ REL:  src\app\services\match.service.ts
 ────────────────────────────────────────────────────────────
 import { Injectable, inject } from '@angular/core';
 import { authState, Auth as FirebaseAuth } from '@angular/fire/auth';
-import { Firestore, doc, docData, collection, collectionData, updateDoc } from '@angular/fire/firestore';
-import { addDoc, getDoc, increment, limit, orderBy, query, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { Firestore, doc, docData, collection, collectionData, updateDoc, query, orderBy, limit, getDoc, addDoc, serverTimestamp, writeBatch } from '@angular/fire/firestore';
 import { Observable, firstValueFrom, map, shareReplay } from 'rxjs';
 import { MyPlayerDoc,  TagEvent } from '../../../../tag-cartesien/src/app/pages/play/play.models';
 import { RoomDoc } from '../models/room.model';
@@ -18778,11 +18781,14 @@ import {
 import {
   AddPlayerInput, CreateRoomResult, RoleSimple
 } from '../models/monitor.models';
+import { httpsCallable } from 'firebase/functions';
+import { Functions } from '@angular/fire/functions';
 
 @Injectable({ providedIn: 'root' })
 export class MonitorActionsService {
   private fs = inject(Firestore);
 
+  private fns = inject(Functions);
   // --- Utils ---------------------------------------------------------
   private normRole(r?: string): RoleSimple {
     const v = (r || '').toLowerCase().trim();
@@ -18944,6 +18950,19 @@ export class MonitorActionsService {
       at: serverTimestamp(), // cohérent avec MonitorRead.latestEvents$ (champ 'at')
     });
   }
+
+    async removePlayerAdmin(roomId: string, targetUid: string): Promise<void> {
+    if (!roomId || !targetUid) throw new Error('missing-params');
+
+    const call = httpsCallable<{ roomId: string; uid: string }, any>(this.fns, 'removePlayer');
+    await call({ roomId, uid: targetUid });
+    }
+
+ async setRoomOwner(roomId: string, newOwnerUid: string): Promise<void> {
+    const call = httpsCallable<{roomId:string; newOwnerUid:string}, any>(this.fns, 'setRoomOwner');
+    await call({ roomId, newOwnerUid });
+  }
+  
 }
 
 
@@ -19650,9 +19669,13 @@ REL:  src\app\sim\players-controls\players-controls.component.html
     <span>Copier l’UID</span>
   </button>
 
-    <button mat-menu-item (click)="remove()" matMenuClose>
+    <button mat-menu-item (click)="remove2()" matMenuClose>
         <mat-icon color="warn">delete</mat-icon>
         <span class="warn">Retirer</span>
+    </button>
+    <button mat-menu-item (click)="makeOwner(currentUid())">
+        <mat-icon>verified_user</mat-icon>
+        <span>Définir comme owner</span>
     </button>
 </mat-menu>
 
@@ -20065,6 +20088,37 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
         }
     }
 
+    async remove2(uid?: string): Promise<void> {
+        const roomId = (this.roomId() || '').trim();
+        const target = (uid ?? this.currentUid()).trim();
+
+        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+        if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
+        if (!confirm('Retirer ce joueur ?')) return;
+
+        this.busyRemoveUid.set(target);
+        try {
+            // 👉 Appel admin à la callable removePlayer (Cloud Functions)
+            await this.act.removePlayerAdmin(roomId, target);
+
+            this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
+        } catch (e: any) {
+            // e est un Firebase HttpsError côté client
+            const code = e?.code as string | undefined; // p.ex. 'permission-denied', 'not-found'
+            const msg  = code === 'permission-denied'
+            ? 'Accès refusé (admin/owner requis).'
+            : code === 'not-found'
+                ? 'Salle introuvable.'
+                : (e?.message ?? e);
+
+            console.error('remove failed', code, e);
+            this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
+        } finally {
+            this.busyRemoveUid.set(null);
+            this.currentUid.set('');
+        }
+    }
+
 
   // Utils
   isHunter(p: any) { return normRole(p?.role) === 'hunter'; }
@@ -20082,6 +20136,23 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     navigator.clipboard?.writeText(v).catch(() => {});
     }
   
+    async makeOwner(uid: string): Promise<void> {
+        const roomId = (this.roomId() || '').trim();
+        if (!roomId || !uid) { this.snack.open('Paramètres manquants', 'OK', { duration: 2000 }); return; }
+        if (!confirm('Définir ce joueur comme propriétaire de la room ?')) return;
+
+        this.busyRoleUid.set(uid);
+        try {
+            await this.act.setRoomOwner(roomId, uid);
+            this.snack.open('Owner mis à jour', 'OK', { duration: 1800 });
+        } catch (e: any) {
+            console.error('set owner failed', e);
+            this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
+        } finally {
+            this.busyRoleUid.set(null);
+        }
+    }
+
 }
 
 function normRole(r?: any): RoleSimple {

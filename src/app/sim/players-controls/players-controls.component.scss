@@ -16,7 +16,7 @@
   max-width: var(--max-content);
   margin-inline: auto;
     margin-top: 10px;
-    
+
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .seps { opacity: .5; margin: 0 6px; }
   .m12  { margin: 12px 0; }
@@ -224,4 +224,21 @@
   .toggle-dense .mat-button-toggle-appearance-standard .mat-button-toggle-button { padding: 0 6px; min-height: 32px; }
   .actions button[mat-icon-button] { width: 40px; height: 40px; }
   .spinner { --mdc-circular-progress-active-indicator-width: 2px; }
+}
+
+.is-owner {
+  background: rgba(33,150,243,.06);
+}
+.avatar.is-owner {
+  box-shadow: 0 0 0 2px rgba(33,150,243,.35) inset;
+}
+.owner-badge {
+  display: inline-flex;
+  gap: .25rem;
+  margin-left: .5rem;
+  padding: 0 .4rem;
+  border-radius: 6px;
+  font-size: .75rem;
+  line-height: 1.4;
+  background: rgba(33,150,243,.15);
 }
