@@ -14,7 +14,6 @@ import { MatDividerModule }   from '@angular/material/divider';
 
 import { Database, ref, serverTimestamp, set } from '@angular/fire/database';
 import { FormsModule } from '@angular/forms';
-import { doc } from 'firebase/firestore';
 import { Firestore, setDoc } from '@angular/fire/firestore';
 
 type NavItem = { label: string; icon: string; link: string; exact?: boolean };

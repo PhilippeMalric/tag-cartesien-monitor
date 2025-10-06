@@ -17,14 +17,15 @@ import { MatCardModule }       from '@angular/material/card';
 
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
-import { MonitorService } from '../../services/monitor.service';
+import { MonitorReadService } from '../../services/monitor-read.service';
 
+/** ⬅️ Changement : propriétés "présentes mais possiblement undefined" */
 type RoomItem = {
   id: string;
-  name?: string;
-  mode?: string; // affichage libre
-  state?: 'idle' | 'running' | string;
-  lastEventAt?: any;
+  name: string | undefined;
+  mode: string | undefined; // affichage libre
+  state: 'idle' | 'running' | string | undefined;
+  lastEventAt: any;
 };
 
 type StateFilter = 'all' | 'running' | 'idle';
@@ -53,19 +54,21 @@ export class RoomSelectComponent {
   filter = signal<StateFilter>('all');
   sortBy = signal<SortBy>('recent');
 
-  private monitor = inject(MonitorService);
+  private read = inject(MonitorReadService);
 
-  /** rooms$ → RoomItem[] (conversion pour affichage + compat types) */
-  private roomsSig = toSignal(
-    this.monitor.rooms$.pipe(
-      map(rooms => (rooms ?? []).map(r => ({
-        id: r.id!, name: r.name,
-        mode: (r as any).mode as string | undefined,
-        state: r.state, lastEventAt: (r as any).lastEventAt,
-      } satisfies RoomItem)))
-    ),
-    { initialValue: [] as any[] }
-  );
+  /** ⬅️ Changement : on fixe le générique <RoomItem[]> et l'initialValue matche exactement */
+ private roomsSig = toSignal(
+  this.read.rooms$.pipe(
+    map(rooms => (rooms ?? []).map(r => ({
+      id: r.id!,
+      name: (r as any).name ?? undefined,
+      mode: (r as any).mode ?? undefined,
+      state: (r as any).state ?? undefined,
+      lastEventAt: (r as any).lastEventAt,
+    })) as RoomItem[])
+  ),
+  { initialValue: [] as RoomItem[] }
+);
 
   /** Liste filtrée + triée */
   filteredRooms = computed<RoomItem[]>(() => {
@@ -84,11 +87,7 @@ export class RoomSelectComponent {
     }
 
     if (sort === 'recent') {
-      rooms.sort((a, b) => {
-        const av = a.lastEventAt?.toMillis ? a.lastEventAt.toMillis() : new Date(a.lastEventAt ?? 0).getTime();
-        const bv = b.lastEventAt?.toMillis ? b.lastEventAt.toMillis() : new Date(b.lastEventAt ?? 0).getTime();
-        return (bv || 0) - (av || 0);
-      });
+      rooms.sort((a, b) => (toMs(b.lastEventAt) || 0) - (toMs(a.lastEventAt) || 0));
     } else {
       rooms.sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
     }
@@ -111,7 +110,6 @@ export class RoomSelectComponent {
   setSort(v: SortBy) { this.sortBy.set(v); }
   onSelect(id: string) { this.valueChange.emit(id); }
   emitCurrent() { if (this.value()) this.valueChange.emit(this.value()); }
-
   refresh() { this.query.set(this.query()); }
 
   // Helpers d’affichage
@@ -122,4 +120,14 @@ export class RoomSelectComponent {
       default:        return undefined;
     }
   }
+}
+
+/** Util: transforme Timestamp/Date/number/undefined → ms */
+function toMs(v: any): number {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  if (v instanceof Date) return v.getTime?.() ?? 0;
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  const t = new Date(v as any).getTime?.();
+  return Number.isFinite(t) ? (t as number) : 0;
 }

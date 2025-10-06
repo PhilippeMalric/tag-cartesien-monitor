@@ -1,0 +1,227 @@
+/* Players Controls — flex-first + full-width friendly */
+.players-card {
+  /* tokens */
+  --gap: 12px;
+  --gap-sm: 8px;
+  --radius: 12px;
+  --avatar: 42px;
+  --tap: 52px;             /* hauteur mini des lignes (touch-friendly) */
+  --max-content: 1200px;   /* largeur max utile en plein écran */
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  /* centré en plein écran, mais prend toute la largeur dispo sur mobile */
+  width: 100%;
+  max-width: var(--max-content);
+  margin-inline: auto;
+    margin-top: 10px;
+    
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .seps { opacity: .5; margin: 0 6px; }
+  .m12  { margin: 12px 0; }
+
+  /* ===== Barre d’ajout (flex, wrap) ===== */
+  .add-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap);
+    align-items: flex-end;
+    margin: 8px 0 4px;
+
+    .w-name, .w-role {
+      flex: 1 1 260px;     /* s’étire, mini 260px */
+      min-width: 220px;
+    }
+    .mat-mdc-raised-button {
+      flex: 0 0 auto;
+      min-height: var(--tap);
+      padding-inline: 16px;
+    }
+  }
+
+  /* ===== Toolbar (recherche / tri) ===== */
+  .list-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap);
+    align-items: center;
+    margin: 6px 0 10px;
+
+    .w-search {
+      flex: 1 1 300px;
+      min-width: 220px;
+    }
+    .w-sort {
+      display: inline-flex;
+      gap: var(--gap-sm);
+      align-items: center;
+      flex: 0 0 auto;
+
+      .mat-button-toggle-appearance-standard .mat-button-toggle-button {
+        min-height: 40px;
+        padding: 0 12px;
+      }
+    }
+  }
+
+  /* ===== Liste ===== */
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 0; /* séparateurs gèrent l’espacement */
+
+    .row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;              /* centrage vertical */
+      gap: 12px;
+      padding: 6px 8px 6px 0;
+      min-height: var(--tap);           /* hauteur confortable */
+      border-radius: var(--radius);
+      transition: background-color .15s ease;
+
+      &:hover {
+        background: color-mix(in oklab, var(--mat-sys-surface), var(--mat-sys-primary) 4%);
+      }
+
+      /* structure des colonnes en flex */
+      .avatar {
+        flex: 0 0 auto;
+        width: var(--avatar);
+        height: var(--avatar);
+        min-width: var(--avatar);
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        letter-spacing: .2px;
+        background: #eceff1; color: #37474f;
+
+        &.hunter { background: #e3f2fd; color: #0d47a1; }
+        ::ng-deep .mat-badge-content { font-weight: 700; line-height: 1; }
+      }
+
+      .body {
+        flex: 1 1 auto;                 /* prend la largeur */
+        min-width: 0;                   /* ellipsis OK */
+        display: flex;
+        flex-direction: row;
+        gap: 6px;
+
+        .topline {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+
+          .name {
+            font-weight: 600;
+            max-width: 44ch;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            line-height: 1.2;
+          }
+
+          .chips { --mdc-chip-outline-color: rgba(0,0,0,.12); }
+        }
+
+        .role-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        
+          ::ng-deep .mat-button-toggle-group {
+            border-radius: 999px;
+            .mat-button-toggle-appearance-standard .mat-button-toggle-button {
+              min-height: 36px;
+              padding: 0 10px;
+            }
+          }
+          .lbl { margin-left: 4px; }
+        }
+      }
+
+      .actions {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+
+        button[mat-icon-button] {
+          width: 44px; height: 44px; /* zone de tap confortable */
+        }
+        .spinner { --mdc-circular-progress-active-indicator-width: 2px; }
+        .warn { color: var(--mat-sys-error); }
+      }
+
+      &.hunter .name { color: #0d47a1; }
+    }
+  }
+
+  /* ===== état vide ===== */
+  .empty {
+    padding: 14px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    opacity: .75;
+  }
+
+  /* ===== Accessibilité ===== */
+  :is(button, a[mat-list-item]) { outline: none; }
+  :is(button, a[mat-list-item]):focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--mat-sys-primary), transparent 70%);
+    border-radius: 10px;
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 720px) {
+    --avatar: 40px;
+    --tap: 50px;
+    .body .topline .name { max-width: 32ch; }
+  }
+
+  @media (max-width: 420px) {
+    --avatar: 36px;
+    --tap: 48px;
+    .body .topline .name { max-width: 26ch; }
+  }
+
+  /* ===== Dark mode léger ===== */
+  @media (prefers-color-scheme: dark) {
+    .list .row:hover {
+      background: color-mix(in oklab, var(--mat-sys-surface), var(--mat-sys-primary) 8%);
+    }
+    .avatar {
+      background: color-mix(in oklab, #000, #fff 12%);
+      color: #e6e6e6;
+      &.hunter { background: color-mix(in oklab, #0d47a1, #fff 85%); color: #082b61; }
+    }
+  }
+}
+
+:host ::ng-deep .mat-button-toggle-label-content {
+ padding-left: 15px ;        /* ⇦ ajuste comme tu veux */
+}
+
+:host ::ng-deep .mdc-list-item { min-height: 100px !important; }
+
+
+.list--compact {
+  .row { min-height: 44px; padding: 2px 6px 2px 0; gap: 8px; }
+  .avatar { width: 34px; height: 34px; font-size: 0.9rem; }
+  .body--compact { display: flex; align-items: center; gap: 8px; }
+  .name { font-weight: 600; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { display: inline-flex; align-items: center; gap: 6px; opacity: .8; font-size: .82rem; }
+  .meta .role-ico { font-size: 18px; line-height: 18px; width: 18px; height: 18px; }
+  .pill { padding: 2px 6px; border-radius: 999px; background: rgba(0,0,0,.06); }
+  .uid { letter-spacing: .2px; }
+  .role-toggle--compact .mat-button-toggle-group { border-radius: 999px; }
+  .toggle-dense .mat-button-toggle-appearance-standard .mat-button-toggle-button { padding: 0 6px; min-height: 32px; }
+  .actions button[mat-icon-button] { width: 40px; height: 40px; }
+  .spinner { --mdc-circular-progress-active-indicator-width: 2px; }
+}

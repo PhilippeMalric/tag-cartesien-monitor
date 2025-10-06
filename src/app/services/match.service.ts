@@ -1,7 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { authState, Auth as FirebaseAuth } from '@angular/fire/auth';
-import { Firestore, doc, docData, collection, collectionData, updateDoc } from '@angular/fire/firestore';
-import { addDoc, getDoc, increment, limit, orderBy, query, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { Firestore, doc, docData, collection, collectionData, updateDoc, query, orderBy, limit, getDoc, addDoc, serverTimestamp, writeBatch } from '@angular/fire/firestore';
 import { Observable, firstValueFrom, map, shareReplay } from 'rxjs';
 import { MyPlayerDoc,  TagEvent } from '../../../../tag-cartesien/src/app/pages/play/play.models';
 import { RoomDoc } from '../models/room.model';

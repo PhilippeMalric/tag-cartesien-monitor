@@ -16074,7 +16074,6 @@ REL:  src\app\app.html
         <span>Tag Monitor</span>
       </div>
       <span class="spacer"></span>
-      <!-- bouton fermer/ouvrir -->
       <button mat-icon-button (click)="toggle()" aria-label="Fermer le menu">
         <mat-icon>close</mat-icon>
       </button>
@@ -16083,6 +16082,15 @@ REL:  src\app\app.html
     <!-- Navigation -->
     <mat-nav-list>
       <h3 matSubheader>Navigation</h3>
+      <a mat-list-item
+        [routerLink]="'/login'"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        matTooltip="Aller à la page de connexion">
+        <mat-icon matListItemIcon>person</mat-icon>
+        <div matListItemTitle>Se connecter</div>
+        <div matListItemLine class="muted">Ouvrir la page login</div>
+      </a>
 
       <a mat-list-item
          *ngFor="let item of nav"
@@ -16093,6 +16101,8 @@ REL:  src\app\app.html
         <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
         <div matListItemTitle>{{ item.label }}</div>
       </a>
+
+   
 
       <!-- Section Simulation -->
       <mat-divider></mat-divider>
@@ -16143,7 +16153,6 @@ REL:  src\app\app.html
   <!-- Content -->
   <mat-sidenav-content class="content">
     <mat-toolbar color="primary" class="topbar">
-      <!-- bouton ouvrir/fermer -->
       <button mat-icon-button (click)="toggle()" class="menu-btn" aria-label="Menu">
         <mat-icon>menu</mat-icon>
       </button>
@@ -16160,6 +16169,13 @@ REL:  src\app\app.html
       <a mat-icon-button routerLink="/simulate" aria-label="Simulation">
         <mat-icon>smart_toy</mat-icon>
       </a>
+
+      <!-- Bouton Login (topbar) -->
+      <a mat-icon-button routerLink="/login" aria-label="Login">
+        <mat-icon>person</mat-icon>
+      </a>
+
+      
     </mat-toolbar>
 
     <main class="page">
@@ -16388,6 +16404,78 @@ export type EventItem = {
 
 
 ────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\models\monitor.models.ts
+REL:  src\app\models\monitor.models.ts
+────────────────────────────────────────────────────────────
+// Types globaux pour le monitor + alias d'observables
+
+import { Observable } from 'rxjs';
+
+export type GameMode = 'classic' | 'transmission' | 'infection';
+export type RoomState = 'idle' | 'running' | 'stopped';
+export type Role =
+  | 'hunter' | 'runner' | 'bot'   // anglais (legacy monitor)
+  | 'chasseur' | 'chassé';         // français (legacy play)
+
+// Normalisation simple pour les actions d'admin (monitor-actions)
+export type RoleSimple = 'hunter' | 'prey';
+
+export interface RoomDoc {
+  id?: string;
+  ownerUid?: string;
+  state?: RoomState | 'in-progress';
+  mode?: GameMode | string;
+  roles?: Record<string, Role | undefined>;
+  lastEventAt?: any;  // Firestore Timestamp | Date | number
+  updatedAt?: any;
+  name?: string;
+  // autres champs éventuels...
+}
+
+export interface EventItem {
+  id?: string;
+  type?: string; // 'tag', ...
+  at?: any;      // Firestore Timestamp | Date | number
+  // payload additionnel...
+}
+
+export interface PlayerDoc {
+  uid?: string;
+  displayName?: string;
+  role?: Role;
+  ready?: boolean;
+  score?: number;
+}
+
+export interface PosDTO {
+  uid?: string;
+  x: number;
+  y: number;
+  role?: Role;
+}
+
+export interface DailyStats {
+  tagsTotal: number;
+  roomsTotal: number;
+  roomsRunning: number;
+  roomsIdle: number;
+  lastEventAt?: any;
+}
+
+// Flux alias pratiques
+export type RoomsStream     = Observable<RoomDoc[]>;
+export type RoomStream      = Observable<RoomDoc | null>;
+export type PlayersStream   = Observable<PlayerDoc[]>;
+export type EventsStream    = Observable<EventItem[]>;
+export type PositionsStream = Observable<PosDTO[]>;
+export type LiveMapStream   = Observable<PosDTO[]>;
+
+// Actions
+export type CreateRoomResult = { roomId: string; name: string; ownerUid: string; guestUid?: string };
+export type AddPlayerInput   = { uid?: string; displayName: string; role?: RoleSimple };
+
+
+────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\models\room.model.ts
 REL:  src\app\models\room.model.ts
 ────────────────────────────────────────────────────────────
@@ -16438,22 +16526,24 @@ export type DailyStats = {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\dashboard.component.ts
 REL:  src\app\pages\dashboard.component.ts
 ────────────────────────────────────────────────────────────
-import { Component, inject } from '@angular/core';
-import { AsyncPipe, NgFor, DatePipe, NgIf } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { AsyncPipe, NgFor, DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { MonitorService } from '../services/monitor.service';
+
+import { MonitorReadService } from '../services/monitor-read.service';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [AsyncPipe, NgFor, DatePipe,  RouterLink],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AsyncPipe, NgFor, DatePipe, RouterLink],
   template: `
     <section class="cards">
 
       <!-- Total tags -->
       <div class="card">
         <h3>Total tags (aujourd'hui)</h3>
-        <div>{{ ((daily$ | async)?.['tagsTotal']) ?? 0 }}</div>
+        <div>{{ (daily$ | async)?.tagsTotal ?? 0 }}</div>
       </div>
 
       <!-- Rooms -->
@@ -16461,10 +16551,10 @@ import { MonitorService } from '../services/monitor.service';
         <h3>Rooms</h3>
         <ul>
           <li *ngFor="let r of (rooms$ | async)">
-            <a [routerLink]="['/room', r['id']]">{{ r['id'] }}</a>
-            — {{ r['state'] }} — {{ r['mode'] }}
-            @if (r['lastEventAt']) {
-              — maj: {{ r['lastEventAt'] | date:'short' }}
+            <a [routerLink]="['/room', r.id]">{{ r.id }}</a>
+            — {{ r.state || '—' }} — {{ r.mode || '—' }}
+            @if (r.lastEventAt) {
+              — maj: {{ r.lastEventAt | date:'short' }}
             }
           </li>
         </ul>
@@ -16473,8 +16563,10 @@ import { MonitorService } from '../services/monitor.service';
   `
 })
 export class DashboardComponent {
-  rooms$ = inject(MonitorService).rooms$;
-  daily$ = inject(MonitorService).dailyStats$;
+  private read = inject(MonitorReadService);
+
+  rooms$ = this.read.rooms$;
+  daily$ = this.read.dailyStats$;
 }
 
 
@@ -16482,55 +16574,124 @@ export class DashboardComponent {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events\events.component.html
 REL:  src\app\pages\events\events.component.html
 ────────────────────────────────────────────────────────────
-<h2>Derniers événements</h2>
-@let events = (events$ | async) ?? [];
-  
-@if (events.length === 0) {
-  <p class="muted">Aucun événement pour le moment.</p>
-} 
+<mat-card appearance="outlined" class="events-card">
+  <mat-card-header>
+    <mat-card-title>
+      @if ((roomId() ?? '').trim().length > 0) {
+        Événements de la room <span class="mono">#{{ roomId() }}</span>
+      } @else {
+        Événements récents (global)
+      }
+    </mat-card-title>
+    <mat-card-subtitle>
+      Journal des actions — plus récent en premier
+    </mat-card-subtitle>
+  </mat-card-header>
 
+  <mat-card-content>
+
+    <div class="toolbar">
+      <mat-form-field appearance="outline" class="limit-field" floatLabel="always">
+        <mat-label>Limite</mat-label>
+        <mat-select [value]="limit()" (selectionChange)="limit.set($any($event.value))">
+          @for (n of limitOptions; track n) {
+            <mat-option [value]="n">{{ n }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </div>
+
+    @if (events$ | async; as events) {
+      @if (events.length === 0) {
+        <div class="empty">Aucun événement pour l’instant.</div>
+      } @else {
+        <mat-nav-list>
+          @for (ev of events; track trackById) {
+            <a mat-list-item>
+              <mat-icon matListItemIcon aria-hidden="true">
+                {{ ev.type === 'tag' ? 'flag' : 'event' }}
+              </mat-icon>
+
+              <div matListItemTitle class="row">
+                <mat-chip-set class="chips">
+                  <mat-chip appearance="outlined" class="chip-type">
+                    {{ labelFor(ev) }}
+                  </mat-chip>
+                  <mat-chip appearance="outlined" *ngIf="ev.hunterUid">
+                    H: {{ short(ev.hunterUid) }}
+                  </mat-chip>
+                  <mat-chip appearance="outlined" *ngIf="ev.victimUid">
+                    V: {{ short(ev.victimUid) }}
+                  </mat-chip>
+                  <mat-chip appearance="outlined" *ngIf="ev.x !== undefined && ev.y !== undefined">
+                    ({{ ev.x }}, {{ ev.y }})
+                  </mat-chip>
+                </mat-chip-set>
+              </div>
+
+              <div matListItemLine class="meta">
+                <span class="date" [title]="(dateMs(ev) | date:'medium')">
+                  {{ dateMs(ev) | date:'short' }}
+                </span>
+                <span class="id" *ngIf="ev.id">— id: <span class="mono">{{ ev.id }}</span></span>
+              </div>
+            </a>
+          }
+        </mat-nav-list>
+      }
+    } @else {
+      <div class="empty">Chargement…</div>
+    }
+
+  </mat-card-content>
+</mat-card>
 
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events\events.component.scss
 REL:  src\app\pages\events\events.component.scss
 ────────────────────────────────────────────────────────────
-h2 {
-  margin: 0 0 .75rem;
-}
+.events-card {
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .hint { opacity: .7; }
 
-.muted {
-  opacity: .7;
-}
-
-ul.events {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-
-  li {
-    padding: .35rem 0;
+  .toolbar {
     display: flex;
-    flex-wrap: wrap;
-    gap: .5rem;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0 16px;
+  }
 
-    time {
-      font-variant-numeric: tabular-nums;
-      opacity: .8;
-      min-width: 9ch; /* rendu plus stable */
-    }
+  .limit-field {
+    width: 140px;
+    min-width: 120px;
+  }
 
-    .arrow {
-      font-weight: 500;
+  .chips {
+    display: inline-flex;
+    gap: 6px;
+    .chip-type {
+      font-weight: 600;
+      letter-spacing: .3px;
     }
+  }
 
-    .coords {
-      opacity: .85;
-    }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
-    .room {
-      opacity: .65;
-    }
+  .meta {
+    font-size: 12px;
+    opacity: .8;
+    .date { margin-right: 8px; }
+    .id { .mono { font-size: 12px; } }
+  }
+
+  .empty {
+    opacity: .7;
+    padding: 16px 4px;
   }
 }
 
@@ -16539,19 +16700,101 @@ ul.events {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\events\events.component.ts
 REL:  src\app\pages\events\events.component.ts
 ────────────────────────────────────────────────────────────
-import { Component, inject } from '@angular/core';
-import { AsyncPipe, DatePipe } from '@angular/common';
-import { MonitorService } from '../../services/monitor.service';
+import { Component, ChangeDetectionStrategy, inject, input, signal } from '@angular/core';
+import { AsyncPipe, DatePipe, NgFor, NgIf } from '@angular/common';
+import { MatCardModule } from '@angular/material/card';
+import { MatListModule } from '@angular/material/list';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatIconModule } from '@angular/material/icon';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+
+import { toObservable } from '@angular/core/rxjs-interop';
+import { combineLatest, map, switchMap, shareReplay, Observable } from 'rxjs';
+
+import { MonitorReadService } from '../../services/monitor-read.service';
+
+// --- Vue d’événement côté UI (ajoute les champs utilisés par le template)
+export interface TagLikeEvent {
+  id?: string;
+  type?: string;       // 'tag'
+  ts?: any;            // Firestore Timestamp | Date | number
+  at?: any;            // compat si certaines collections ont 'at'
+  hunterUid?: string;
+  victimUid?: string;
+  x?: number;
+  y?: number;
+}
 
 @Component({
-  standalone: true,
   selector: 'app-events',
-  imports: [AsyncPipe, DatePipe],
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    AsyncPipe, DatePipe, NgIf, NgFor,
+    MatCardModule, MatListModule, MatChipsModule, MatIconModule,
+    MatFormFieldModule, MatSelectModule,
+  ],
   templateUrl: './events.component.html',
   styleUrls: ['./events.component.scss'],
 })
 export class EventsComponent {
-  readonly events$ = inject(MonitorService).latestEvents$;
+  // Si fourni: événements de la room ; sinon: globaux
+  roomId = input<string>('');
+
+  // Doit être un signal local (pas InputSignal) pour faire .set() depuis le template
+  limit = signal<number>(50);
+  readonly limitOptions = [20, 50, 100];
+
+  private read = inject(MonitorReadService);
+
+  // ⚠️ Typage explicite en TagLikeEvent[] -> le template voit bien hunterUid/x/y/...
+  readonly events$: Observable<TagLikeEvent[]> = combineLatest([
+    toObservable(this.roomId),
+    toObservable(this.limit),
+  ]).pipe(
+    switchMap(([id, lim]) => {
+      const trimmed = (id ?? '').trim();
+      if (trimmed.length > 0) {
+        return this.read.events$(trimmed, lim);
+      }
+      return this.read.latestEvents$;
+    }),
+    // Normalise chaque item vers TagLikeEvent
+    map(list =>
+      (list ?? []).map(ev => ({
+        id: (ev as any)?.id,
+        type: (ev as any)?.type,
+        ts: (ev as any)?.ts,
+        at: (ev as any)?.at, // fallback si certains ont 'at' au lieu de 'ts'
+        hunterUid: (ev as any)?.hunterUid,
+        victimUid: (ev as any)?.victimUid,
+        x: (ev as any)?.x,
+        y: (ev as any)?.y,
+      } as TagLikeEvent))
+    ),
+    // Tri décroissant par timestamp (ts|at)
+    map(list => [...list].sort((a, b) => tsMs(b.ts ?? b.at) - tsMs(a.ts ?? a.at))),
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
+
+  // Utils pour le template
+  trackById(_: number, ev: TagLikeEvent) {
+    return ev.id || `${ev.type}-${tsMs(ev.ts ?? ev.at)}`;
+  }
+  labelFor(ev: TagLikeEvent): string { return (ev?.type || 'event').toUpperCase(); }
+  short(uid?: string): string { return uid ? uid.slice(0, 6) + '…' : ''; }
+  dateMs(ev: TagLikeEvent): number { return tsMs(ev.ts ?? ev.at); }
+}
+
+// --- Helper hors classe ---
+function tsMs(v: any): number {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  if (v instanceof Date) return v.getTime?.() ?? 0;
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  const t = new Date(v as any).getTime?.();
+  return Number.isFinite(t) ? (t as number) : 0;
 }
 
 
@@ -17136,22 +17379,34 @@ export class PlayRenderer {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\room-detail\room-detail.component.html
 REL:  src\app\pages\room-detail\room-detail.component.html
 ────────────────────────────────────────────────────────────
-@if (room$ | async; as room) {
+@if (vm$ | async; as vm) {
 
-  <h2>Room {{ room.id }}</h2>
-  <p>Statut: {{ room.state }} — Mode: {{ room.mode }}</p>
+  <h2>Room {{ vm.room?.id }}</h2>
+  <p>Statut: {{ vm.room?.state || '—' }} — Mode: {{ vm.room?.mode || '—' }}</p>
   <button (click)="confirmDelete()" class="danger">🗑️ Supprimer cette room</button>
 
   <h3>Carte temps réel</h3>
-  <!-- ✅ IMPORTANT: on passe l'id de la room à la carte -->
+  <!-- La carte lit l'id via la route; si tu veux, tu peux aussi lui passer [roomId]="vm.room?.id" si le composant le supporte -->
   <app-room-live-map></app-room-live-map>
 
+  <!-- ====== PLAYERS (via players$ dans le VM) ====== -->
+  <h3>Joueurs ({{ vm.players?.length || 0 }})</h3>
+  @if (vm.players?.length) {
+    <ul>
+      @for (p of vm.players; track p.uid) {
+        <li>
+          <strong>{{ p.displayName || p.uid }}</strong>
+          — rôle: <b>{{ p.role || '—' }}</b>
+          <span *ngIf="p.score !== undefined"> — score: {{ p.score }}</span>
+        </li>
+      }
+    </ul>
+  } @else {
+    <em>Aucun joueur</em>
+  }
 
- 
-
-  <pre class="muted" style="white-space:pre-wrap">
-  @if (room?.players) { {{ room.players | json }} } @else { no room.players }
-</pre>
+  <!-- Debug facultatif -->
+  <pre class="muted" style="white-space:pre-wrap">{{ vm.players | json }}</pre>
 
   <!-- ====== BOTS (monitor -> RTDB) ====== -->
   <h3>Bots (monitor → RTDB)</h3>
@@ -17204,7 +17459,7 @@ REL:  src\app\pages\room-detail\room-detail.component.html
     <button (click)="tryWriteTest()">✍ Test écriture bots</button>
     <ul>
       <li><b>auth.uid</b> = {{ diag.uid || '—' }}</li>
-      <li><b>roomsMeta/{{ room.id }}/ownerUid</b> = {{ diag.ownerUid || '—' }}</li>
+      <li><b>roomsMeta/{{ vm.room?.id }}/ownerUid</b> = {{ diag.ownerUid || '—' }}</li>
       <li><b>write bots</b> = {{ diag.canWriteBots }}</li>
     </ul>
   </div>
@@ -17503,13 +17758,16 @@ import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { AsyncPipe, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-import { MonitorService,  PosDTO } from '../../services/monitor.service';
-import { RoomDoc, RoomVM } from '../../models/room.model';
+import { MonitorReadService } from '../../services/monitor-read.service';
+import { RtdbPositionsService } from '../../services/rtdb-positions.service';
+import { RoomDoc, PosDTO } from '../../models/monitor.models';
+import { RoomVM } from '../../models/room.model'; // garde si utilisé dans confirmDelete()
 
-import { Database, ref, objectVal, set, update, get } from '@angular/fire/database';
+import { Database, ref, set, update, get } from '@angular/fire/database';
+import { objectVal } from 'rxfire/database';
 import { Auth } from '@angular/fire/auth';
 import { map } from 'rxjs/operators';
-import { firstValueFrom, Observable } from 'rxjs';
+import { combineLatest, firstValueFrom, Observable } from 'rxjs';
 
 // Carte temps réel (présente sur la page)
 import { RoomLiveMapComponent } from './room-live-map/room-live-map.component';
@@ -17529,20 +17787,28 @@ type PositionItem = { id: string; isBot: boolean; x: number; y: number };
 })
 export class RoomDetailComponent {
   private route = inject(ActivatedRoute);
-  private monitor = inject(MonitorService);
+  private read = inject(MonitorReadService);
+  private rtdbPos = inject(RtdbPositionsService);
   private db = inject(Database);
   private auth = inject(Auth);
   private router = inject(Router);
 
   readonly roomId: string = this.route.snapshot.paramMap.get('id')!;
 
-  // VM / Room
-  readonly room$: Observable<RoomDoc> =
-    this.monitor.roomById$(this.roomId) as any;
+  // Room seule
+  readonly room$: Observable<RoomDoc> = this.read.room$(this.roomId) as any;
+
+  // Players de la room (séparé)
+  readonly players$ = this.read.players$(this.roomId);
+
+  // VM combiné pour le template (évite d'accéder à room.players)
+  readonly vm$ = combineLatest([this.room$, this.players$]).pipe(
+    map(([room, players]) => ({ room, players }))
+  );
 
   // Positions (live) transformées pour la liste
   readonly positions$: Observable<PositionItem[]> =
-    this.monitor.liveMap$(this.roomId).pipe(
+    this.rtdbPos.liveMap$(this.roomId).pipe(
       map((dots: PosDTO[]) =>
         (dots ?? [])
           .map((d: PosDTO) => ({
@@ -17646,7 +17912,7 @@ export class RoomDetailComponent {
     if (!ok) return;
 
     try {
-      await this.monitor.deleteRoom(roomId);
+      await this.read.deleteRoom(roomId);
       try { await set(ref(this.db, `bots/${roomId}`), null); } catch {}
       this.router.navigateByUrl('/rooms');
     } catch (e) {
@@ -17723,10 +17989,8 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { PosDTO, PositionsService } from '../../../services/positions.service';
 import { PlayRenderer } from '../play.renderer';
-import { MonitorService } from '../../../services/monitor.service';
 
 // Adapte ces chemins selon ton repo
-
 
 @Component({
   standalone: true,
@@ -17738,9 +18002,9 @@ import { MonitorService } from '../../../services/monitor.service';
 export class RoomLiveMapComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private ngZone = inject(NgZone);
-  private positions: PositionsService = inject(PositionsService);
-  private monitor = inject(MonitorService);
-private hunterUids: string[] = [];
+  private positions = inject(PositionsService);
+
+  private hunterUids: string[] = [];
 
   @ViewChild('cv', { static: true }) cv!: ElementRef<HTMLCanvasElement>;
 
@@ -17753,7 +18017,6 @@ private hunterUids: string[] = [];
   private latest: Record<string, PosDTO> = {};
   private rendererWantsCanvas?: boolean; // cache le mode après 1er essai
 
-
   ngOnInit() {
     this.roomId = this.route.snapshot.paramMap.get('id')!;
     this.positions.startListening(this.roomId);
@@ -17764,19 +18027,18 @@ private hunterUids: string[] = [];
     this.ctx = ctx;
 
     this.positions.positions$.subscribe((map: Record<string, PosDTO> | null) => {
-  this.latest = map ?? {};
+      this.latest = map ?? {};
 
-  // dérive la liste des chasseurs d'après role
-  const hunters: string[] = [];
-  for (const [id, p] of Object.entries(this.latest)) {
-    const role = String(p?.role ?? '').toLowerCase();
-    if (role === 'chasseur' || role === 'hunter') hunters.push(id);
-  }
-  this.hunterUids = Array.from(new Set(hunters));
-  
+      // dérive la liste des chasseurs d'après role
+      const hunters: string[] = [];
+      for (const [id, p] of Object.entries(this.latest)) {
+        const role = String(p?.role ?? '').toLowerCase();
+        if (role === 'chasseur' || role === 'hunter') hunters.push(id);
+      }
+      this.hunterUids = Array.from(new Set(hunters));
 
-  if (!this.raf) this.raf = requestAnimationFrame(() => this.draw());
-});
+      if (!this.raf) this.raf = requestAnimationFrame(() => this.draw());
+    });
 
     this.ngZone.runOutsideAngular(() => this.loop());
   }
@@ -17812,8 +18074,8 @@ private hunterUids: string[] = [];
     const now = performance.now();
     const bounds = { minX: -50, maxX: 50, minY: -50, maxY: 50 };
 
-    const players: Array<{ id: string; x: number; y: number; name?: string }> = [];
-    const bots   : Array<{ id: string; x: number; y: number; name?: string }> = [];
+    const players: Array<{ id: string; x: number; y: number; name?: string; role?: any }> = [];
+    const bots   : Array<{ id: string; x: number; y: number; name?: string; role?: any }> = [];
 
     for (const [id, p] of Object.entries(this.latest)) {
       if (!p) continue;
@@ -17821,7 +18083,7 @@ private hunterUids: string[] = [];
         id,
         x: Number(p.x) || 0,
         y: Number(p.y) || 0,
-        name: p.name,
+        name: (p as any).name,
         role: p.role, // ⬅️ on passe le rôle au renderer
       };
       (id.startsWith('bot-') ? bots : players).push(item);
@@ -17835,26 +18097,18 @@ private hunterUids: string[] = [];
       bots,
       showSelf: false,
       hunterUids: this.hunterUids, // ⬅️ multi chasseurs depuis roles live
-      tagRadius: 10, 
+      tagRadius: 10,
     };
 
-
-
-    // 
     try {
-     
-        // On sait déjà qu'il veut un ctx
-        console.log('PlayRenderer: using ctx');
-        this.renderer.draw(this.ctx, state)
-        
-        
-      } 
-   catch {
-     console.log('PlayRenderer: fallback to quick draw');
-     
+      // On sait déjà qu'il veut un ctx
+      this.renderer.draw(this.ctx, state);
+    } catch {
+      // fallback minimal si jamais draw() lance une erreur
+      // (laisser vide ou logger silencieusement)
+      // console.warn('PlayRenderer: fallback');
     }
   }
-
 }
 
 
@@ -17862,30 +18116,121 @@ private hunterUids: string[] = [];
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\pages\rooms.component.ts
 REL:  src\app\pages\rooms.component.ts
 ────────────────────────────────────────────────────────────
-import { Component, inject } from '@angular/core';
-import { AsyncPipe, NgFor, DatePipe, NgIf } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { AsyncPipe, DatePipe, NgFor, NgIf } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { MonitorService } from '../services/monitor.service';
+import { map, shareReplay } from 'rxjs';
+
+import { MonitorReadService } from '../services/monitor-read.service';
+import { RoomDoc } from '../models/monitor.models';
 
 @Component({
   selector: 'app-rooms',
   standalone: true,
-  imports: [AsyncPipe, NgFor, DatePipe,  RouterLink],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AsyncPipe, NgFor, NgIf, DatePipe, RouterLink],
   template: `
-    <h2>Rooms</h2>
-    <ul>
-      <li *ngFor="let r of (rooms$ | async)">
-        <a [routerLink]="['/room', r.id]">{{ r.id }}</a>
-        — status: {{ r.state }} — mode: {{ r.mode }}
-        @if (r.lastEventAt) {
-          — maj: {{ r.lastEventAt | date:'short' }}
-        }
-      </li>
-    </ul>
-  `
+    <section class="header">
+      <h2>Rooms</h2>
+      @if (stats$ | async; as s) {
+        <div class="summary">
+          <span class="pill running">running: {{ s.running }}</span>
+          <span class="pill idle">idle: {{ s.idle }}</span>
+          <span class="pill other">other: {{ s.other }}</span>
+          <span class="total">total: {{ s.total }}</span>
+        </div>
+      }
+    </section>
+
+    @if (sortedRooms$ | async; as rooms) {
+      @if (rooms.length === 0) {
+        <p class="empty">Aucune room pour l’instant.</p>
+      } @else {
+        <ul class="rooms">
+          @for (r of rooms; track r.id) {
+            <li class="room">
+              <div class="main">
+                <a class="id mono" [routerLink]="['/room', r.id]">#{{ r.id }}</a>
+                <span class="sep">—</span>
+                <span class="state">status: <strong>{{ r.state || '—' }}</strong></span>
+                <span class="sep">—</span>
+                <span class="mode">mode: {{ r.mode || '—' }}</span>
+              </div>
+
+              <div class="meta">
+                @if (r.lastEventAt) {
+                  <span class="when">maj: {{ toMs(r.lastEventAt) | date:'short' }}</span>
+                } @else if (r.updatedAt) {
+                  <span class="when">maj: {{ toMs(r.updatedAt) | date:'short' }}</span>
+                } @else {
+                  <span class="when">maj: —</span>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    } @else {
+      <p>Chargement…</p>
+    }
+  `,
+  styles: [`
+    .header {
+      display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px;
+    }
+    .summary { display: flex; gap: 8px; font-size: 13px; }
+    .pill { padding: 2px 8px; border-radius: 999px; background: #eee; color: black;}
+    .pill.running { background: #e6ffe6; }
+    .pill.idle    { background: #f2f2ff; }
+    .pill.other   { background: #fff2e6; }
+    .total { margin-left: 6px; opacity: .8; }
+
+    .rooms { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+    .room  { padding: 10px 12px; border: 1px solid rgba(0,0,0,.08); border-radius: 10px; }
+    .main  { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .meta  { font-size: 12px; opacity: .8; margin-top: 2px; }
+    .sep   { opacity: .5; }
+    .mono  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .id    { text-decoration: none; }
+    .when  { }
+    .empty { opacity: .7; }
+  `],
 })
 export class RoomsComponent {
-  rooms$ = inject(MonitorService).rooms$;
+  private read = inject(MonitorReadService);
+
+  // rooms triées par activité (lastEventAt puis updatedAt) décroissante
+  sortedRooms$ = this.read.rooms$.pipe(
+    map(list => [...(list ?? [])].sort((a, b) => this.whenMs(b) - this.whenMs(a))),
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
+
+  // petit résumé (compte par état)
+  stats$ = this.read.rooms$.pipe(
+    map((rooms: RoomDoc[] = []) => {
+      const total = rooms.length;
+      const running = rooms.filter(r => r.state === 'running').length;
+      const idle = rooms.filter(r => r.state === 'idle').length;
+      const other = total - running - idle;
+      return { total, running, idle, other };
+    }),
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
+
+  // helpers
+  private whenMs(r: RoomDoc): number {
+    const a = this.toMs(r?.lastEventAt);
+    const b = this.toMs(r?.updatedAt);
+    return Math.max(a, b, 0);
+  }
+  toMs(v: any): number {
+    if (!v) return 0;
+    if (typeof v === 'number') return v;
+    if (v instanceof Date) return v.getTime?.() ?? 0;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    const t = new Date(v as any).getTime?.();
+    return Number.isFinite(t) ? (t as number) : 0;
+  }
 }
 
 
@@ -17942,13 +18287,18 @@ export class AuthService {
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\bot.service.ts
 REL:  src\app\services\bot.service.ts
 ────────────────────────────────────────────────────────────
-import { Injectable, inject } from '@angular/core';
+import { Injectable, WritableSignal, inject } from '@angular/core';
 import {
   Database, getDatabase, ref, onValue, push, set, update, runTransaction, get
 } from '@angular/fire/database';
 import { Auth } from '@angular/fire/auth';
+import {
+  Firestore, deleteField, doc, updateDoc,
+  writeBatch, serverTimestamp, setDoc
+} from '@angular/fire/firestore';
 import { Observable } from 'rxjs';
-import { Firestore, deleteField, doc, updateDoc } from '@angular/fire/firestore';
+import { BotLocal } from '../sim/simulator/match-simulator.component';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 export type Bot = {
   id: string;
@@ -17957,31 +18307,58 @@ export type Bot = {
   y: number;
   createdAt: number;
   updatedAt: number;
+  role?: string;
+  random?: boolean;
 };
 
 @Injectable({ providedIn: 'root' })
 export class BotService {
   private db: Database = getDatabase();
-  
   private readonly fs = inject(Firestore);
-  
   private auth = inject(Auth);
 
-  /** S’assure que roomsMeta/{matchId}/ownerUid est défini (si absent) */
-  async ensureOwnership(matchId: string) {
+  private snack = inject(MatSnackBar);
+  toast = (m: string): void => { this.snack.open(m, 'OK', { duration: 1800 }); };
+  rnd(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  clamp(v: number, a: number, b: number): number { return Math.max(a, Math.min(b, v)); }
+
+  /* -------------------- Helpers -------------------- */
+
+  /** Normalise un rôle pour matcher la logique des règles (FR/EN) */
+  private normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'chassé' {
+    if (!role) return 'chassé';
+    const r = role.toLowerCase().trim();
+    if (['hunter', 'chasseur'].includes(r)) return (r === 'chasseur' ? 'chasseur' : 'hunter');
+    // tout le reste = proie
+    return r === 'prey' ? 'prey' : 'chassé';
+  }
+
+  /** S’assure que roomsMeta/{roomId}/ownerUid est défini (si absent) */
+  async ensureOwnership(roomId: string) {
     const uid = this.auth.currentUser?.uid;
     if (!uid) return;
-    const ownerRef = ref(this.db, `roomsMeta/${matchId}/ownerUid`);
+    const ownerRef = ref(this.db, `roomsMeta/${roomId}/ownerUid`);
     const snap = await get(ownerRef);
     if (!snap.exists()) {
-      // Rule côté RTDB: écriture permise si !data.exists()
+      // Règle RTDB: écriture permise si !data.exists()
       await set(ownerRef, uid);
     }
   }
 
+  /** Vérifie sommairement le claim admin côté client (utile pour debug) */
+  async isAdminClaim(): Promise<boolean> {
+    const user = this.auth.currentUser;
+    if (!user) return false;
+    const t = await user.getIdTokenResult(true);
+    return t.claims?.['admin'] === true || t.claims?.['admin'] === 'true';
+    // (On tolère 'true' string par précaution côté règles)
+  }
+
+  /* -------------------- Flux lecture -------------------- */
+
   /** Flux des bots d’une room (objets triés par displayName) */
-  bots$(matchId: string): Observable<Bot[]> {
-    const botsRef = ref(this.db, `bots/${matchId}`);
+  bots$(roomId: string): Observable<Bot[]> {
+    const botsRef = ref(this.db, `bots/${roomId}`);
     return new Observable<Bot[]>(subscriber => {
       const off = onValue(botsRef, (snap) => {
         const val = snap.val() as Record<string, any> | null;
@@ -17995,61 +18372,184 @@ export class BotService {
     });
   }
 
-  /** Ajoute un bot et retourne son id */
-async addBot(roomId: string, displayName = 'Bot') {
-  // 1) Crée le bot en RTDB (positions/comportement temps réel)
-  const botsRef = ref(this.db, `bots/${roomId}`);
-  const newRef = push(botsRef);
-  const now = Date.now();
-  await set(newRef, {
-    displayName,
-    x: 0, y: 0,
-    createdAt: now, updatedAt: now
-  });
+  /* -------------------- Création / spawn -------------------- */
 
-  // 2) Expose ce bot côté UI via Firestore: rooms/{roomId}.roles
-  //    On fabrique un uid "virtuel" stable pour l’UI:
-  const botUid = `bot-${newRef.key!}`;
-  await updateDoc(doc(this.fs, 'rooms', roomId), {
-    // rôle par défaut; change en 'chasseur' si tu veux
-    [`roles.${botUid}`]: 'chassé'
-  });
+  /** Ajoute un bot simple et retourne son id virtuel (ex: 'bot-<key>') */
+  async addBot(roomId: string, displayName = 'Bot', role: string = 'prey') {
+    await this.ensureOwnership(roomId);
 
-  return botUid; // pratique pour log/gestion
+    // 1) RTDB
+    const botsRef = ref(this.db, `bots/${roomId}`);
+    const newRef = push(botsRef);
+    const now = Date.now();
+    const normRole = this.normalizeRole(role);
+    await set(newRef, {
+      displayName,
+      x: 0, y: 0,
+      role: normRole,
+      type: 'bot',
+      createdAt: now, updatedAt: now
+    });
+
+    // 2) Firestore (roles map)
+    const botUid = `bot-${newRef.key!}`;
+    await updateDoc(doc(this.fs, 'rooms', roomId), {
+      [`roles.${botUid}`]: normRole
+    });
+
+    // 3) Firestore (player snapshot minimal – pratique pour UI/queries)
+    await setDoc(doc(this.fs, `rooms/${roomId}/players/${botUid}`), {
+      uid: botUid,
+      displayName: `🤖 ${displayName}`,
+      isConnected: false,
+      ready: true,
+      x: 0, y: 0,
+      lastUpdate: serverTimestamp(),
+      role: normRole
+    }, { merge: true });
+
+    return botUid;
+  }
+
+  /**
+   * Spawn de N bots:
+   * - RTDB: /bots/{roomId}/{botId}
+   * - FS:   batch players/* + merge roles
+   * Retourne les ids virtuels (bot-<key>) créés.
+   */
+  async spawnBots(roomId:string,role: string = 'prey',nbBots:number,bots:WritableSignal<BotLocal[]>): Promise<void> {
+  
+  if (!roomId) return this.toast('Room ID manquant');
+
+  try {
+    // 1) S’assure que l’owner est posé en RTDB (tes règles l’exigent)
+    await this.ensureOwnership(roomId);
+
+    const bound = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
+    const count = bound(nbBots | 0, 1, 50);
+
+    const now = Date.now();
+    const list: BotLocal[] = [];
+    const normRole = this.normalizeRole(role);
+
+    // 2) Prépare batch Firestore + writes RTDB en parallèle
+    const batch = writeBatch(this.fs);
+    const rtdbWrites: Promise<any>[] = [];
+    const rolesPatch: Record<string, string> = {}; // ➜ un seul merge pour roles
+    const roomRef = doc(this.fs, `rooms/${roomId}`);
+
+    for (let i = 0; i < count; i++) {
+      const botId = `bot-${now}-${i}`;
+      const x = this.rnd(-20, 20);
+      const y = this.rnd(-20, 20);
+      list.push({ id: botId, x, y, h: null });
+
+      // RTDB (faible latence)
+      rtdbWrites.push(
+        set(ref(this.db, `bots/${roomId}/${botId}`), {
+          x, y, t: Date.now(),
+          name: `Bot ${i + 1}`,
+          role: normRole,
+          type: 'bot'
+        })
+      );
+
+      // FS: player snapshot (whitelist ok avec tes règles)
+      const pRef = doc(this.fs, `rooms/${roomId}/players/${botId}`);
+      batch.set(pRef, {
+        uid: botId,
+        displayName: `🤖 Bot ${i + 1}`,
+        isConnected: false,
+        ready: true,
+        x, y,
+        lastUpdate: serverTimestamp(),
+        role: normRole
+      }, { merge: true });
+
+      // On agrège les rôles pour un seul set/merge à la fin
+      rolesPatch[botId] = normRole;
+    }
+
+    // 3) Un seul patch pour rooms/{id}.roles (évite d’écraser/émettre N fois)
+    batch.set(roomRef, { roles: rolesPatch } as any, { merge: true });
+
+    // 4) Exécutions
+    await Promise.all(rtdbWrites);
+    await batch.commit();
+
+    // 5) État local + toast
+    bots.update(b => [...b, ...list]);
+    this.toast(`${count} bot${count > 1 ? 's' : ''} créé${count > 1 ? 's' : ''} (${normRole})`);
+  } catch (err: any) {
+    console.error('spawnBots error', err);
+    // Aide rapide si permission_denied côté RTDB
+    if (String(err?.message || '').includes('permission_denied')) {
+      this.toast('Permission refusée (RTDB). Vérifie roomsMeta/ownerUid ou le claim admin.');
+    } else {
+      this.toast('Erreur lors de la création des bots.');
+    }
+  }
 }
 
+  /* -------------------- Opérations sur bots -------------------- */
+
   /** Déplacement relatif dx/dy (atomique via transaction) */
-  async moveBot(matchId: string, botId: string, dx: number, dy: number) {
-    const botRef = ref(this.db, `bots/${matchId}/${botId}`);
+  async moveBot(roomId: string, botId: string, dx: number, dy: number) {
+    const botRef = ref(this.db, `bots/${roomId}/${botId}`);
     await runTransaction(botRef, (cur: any) => {
       if (!cur) return cur;
       const nx = (cur.x ?? 0) + dx;
       const ny = (cur.y ?? 0) + dy;
-      // (Optionnel) Clip dans une zone, ex. [-45,45]
-      // const clip = (v: number) => Math.max(-45, Math.min(45, v));
-      // return { ...cur, x: clip(nx), y: clip(ny), updatedAt: Date.now() };
       return { ...cur, x: nx, y: ny, updatedAt: Date.now() };
     });
   }
 
   /** Déplacement absolu */
-  async setPos(matchId: string, botId: string, x: number, y: number) {
-    const botRef = ref(this.db, `bots/${matchId}/${botId}`);
+  async setPos(roomId: string, botId: string, x: number, y: number) {
+    const botRef = ref(this.db, `bots/${roomId}/${botId}`);
     await update(botRef, { x, y, updatedAt: Date.now() });
   }
 
+  /** Change le rôle d’un bot (RTDB + Firestore.roles + player.role) */
+  async setBotRole(roomId: string, botId: string, role: string) {
+    const normRole = this.normalizeRole(role);
+
+    // RTDB
+    await update(ref(this.db, `bots/${roomId}/${botId}`), { role: normRole, updatedAt: Date.now() });
+
+    // Firestore: roles map
+    await updateDoc(doc(this.fs, 'rooms', roomId), { [`roles.${botId}`]: normRole });
+
+    // Firestore: player snapshot
+    await updateDoc(doc(this.fs, `rooms/${roomId}/players/${botId}`), { role: normRole, lastUpdate: serverTimestamp() });
+  }
+
+  /** Active/désactive le comportement aléatoire (RTDB) */
+  async setBotRandom(roomId: string, botId: string, random: boolean) {
+    await update(ref(this.db, `bots/${roomId}/${botId}`), { random, updatedAt: Date.now() });
+  }
+
+  /** Supprime une liste de bots */
   async clearBots(roomId: string, botKeys: string[]) {
     // RTDB
     const updates: Record<string, null> = {};
     for (const k of botKeys) updates[k] = null;
     await update(ref(this.db, `bots/${roomId}`), updates);
 
-    // Firestore
+    // Firestore: roles.* et players/*
     const patch: any = {};
-    for (const k of botKeys) patch[`roles.bot-${k}`] = deleteField();
-    await updateDoc(doc(this.fs, 'rooms', roomId), patch);
+    for (const k of botKeys) patch[`roles.${'bot-' + k}`] = deleteField();
+
+    const batch = writeBatch(this.fs);
+    batch.update(doc(this.fs, 'rooms', roomId), patch);
+    for (const k of botKeys) {
+      const uid = `bot-${k}`;
+      batch.delete(doc(this.fs, `rooms/${roomId}/players/${uid}`));
+    }
+    await batch.commit();
   }
 
+  trackByUid = (_: number, p: { uid: string }) => p.uid;
 }
 
 
@@ -18266,212 +18766,263 @@ export class MatchService {
 
 
 ────────────────────────────────────────────────────────────
-FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\monitor.service.ts
-REL:  src\app\services\monitor.service.ts
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\monitor-actions.service.ts
+REL:  src\app\services\monitor-actions.service.ts
 ────────────────────────────────────────────────────────────
-// src/app/services/monitor.service.ts
 import { Injectable, inject } from '@angular/core';
 import {
-  Firestore,
-  collection,
-  CollectionReference,
-  collectionData,
-  doc,
-  docData,
-  query,
-  orderBy,
-  limit as qLimit,
-  collectionGroup,
-  where,
-  deleteDoc,
+  Firestore, collection, addDoc, serverTimestamp, writeBatch, doc,
+  runTransaction
 } from '@angular/fire/firestore';
+
 import {
-  Database,
-  ref as rtdbRef,
-  objectVal,
-} from '@angular/fire/database';
-import { Observable, map, shareReplay, distinctUntilChanged, combineLatest } from 'rxjs';
-import { RoomDoc } from '../models/room.model';
-import { EventItem } from '../models/event.model';
-
-// --- Tes interfaces (inchangées) ---
-export type GameMode = 'classic' | 'transmission' | 'infection';
-export type RoomState = 'idle' | 'running' | 'stopped';
-
-export interface DailyStats {
-  tagsTotal: number;
-  roomsTotal: number;
-  roomsRunning: number;
-  roomsIdle: number;
-  lastEventAt?: any; // Timestamp | Date | string
-}
-
-export interface PlayerDoc {
-  uid?: string;
-  displayName?: string;
-  role?: 'hunter' | 'runner' | 'bot';
-}
-
-export interface PosDTO {
-  x: number;
-  y: number;
-  uid?: string;
-  role?: PlayerDoc['role'];
-}
-
-// --- ✅ Alias de types pour éviter ReturnType<...> dans l'init des Maps ---
-type RoomsStream     = Observable<RoomDoc[]>;
-type RoomStream      = Observable<RoomDoc>;
-type PlayersStream   = Observable<PlayerDoc[]>;
-type EventsStream    = Observable<EventItem[]>;
-type PositionsStream = Observable<PosDTO[]>;
-type LiveMapStream   = Observable<PosDTO[]>;
-
-const isDefined = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
+  AddPlayerInput, CreateRoomResult, RoleSimple
+} from '../models/monitor.models';
 
 @Injectable({ providedIn: 'root' })
-export class MonitorService {
+export class MonitorActionsService {
   private fs = inject(Firestore);
-  private rtdb = inject(Database);
 
-  // --- ✅ Caches avec annotations explicites (plus d'implicite / self-ref) ---
-  private _roomCache: Map<string, RoomDoc> = new Map();
-  private _playersCache: Map<string, PlayersStream> = new Map();
-  private _eventsCache: Map<string, EventsStream> = new Map();
-  private _positionsCache: Map<string, PositionsStream> = new Map();
-  private _liveMapCache: Map<string, LiveMapStream> = new Map();
+  // --- Utils ---------------------------------------------------------
+  private normRole(r?: string): RoleSimple {
+    const v = (r || '').toLowerCase().trim();
+    return v === 'hunter' || v === 'chasseur' ? 'hunter' : 'prey';
+  }
 
-  // --- 1) ROOMS ---------------------------------------------------------------
+  private randomUid(): string {
+    return 'p-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  // --- Actions -------------------------------------------------------
+
+  async createRoomWithOwner(name: string, ownerUid: string): Promise<CreateRoomResult> {
+    const finalName = (name ?? '').trim() || 'Partie';
+
+    const roomRef = await addDoc(collection(this.fs, 'rooms'), {
+      name: finalName,
+      ownerUid,
+      state: 'idle',
+      mode: 'default',
+      targetScore: 10,
+      timeLimit: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    // invité synthétique
+    const guestUid = `guest-${Math.random().toString(36).slice(2, 8)}`;
+
+    const batch = writeBatch(this.fs);
+
+    batch.set(doc(this.fs, `rooms/${roomRef.id}/players/${ownerUid}`), {
+      role: 'chasseur', score: 0, spawn: { x: 0, y: 0 },
+      iFrameUntilMs: 0, cantTagUntilMs: 0,
+    });
+
+    batch.set(doc(this.fs, `rooms/${roomRef.id}/players/${guestUid}`), {
+      role: 'chassé', score: 0, spawn: { x: 10, y: 0 },
+      iFrameUntilMs: 0, cantTagUntilMs: 0,
+    });
+
+    batch.set(doc(this.fs, 'rooms', roomRef.id), {
+      roles: { [ownerUid]: 'chasseur', [guestUid]: 'chassé' },
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+
+    await batch.commit();
+    return { roomId: roomRef.id, name: finalName, ownerUid, guestUid };
+  }
+
+  async addOrUpdatePlayer(
+    roomId: string,
+    input: { uid?: string; displayName: string; role?: 'hunter' | 'prey' },
+    opts: { singleHunter?: boolean } = { singleHunter: true }
+    ): Promise<string> {
+    const uid = (input.uid?.trim() || ('p-' + Math.random().toString(36).slice(2, 10)));
+    const role = (String(input.role ?? 'prey').toLowerCase() === 'hunter') ? 'hunter' : 'prey';
+
+    const roomRef   = doc(this.fs, 'rooms', roomId);
+    const playerRef = doc(this.fs, 'rooms', roomId, 'players', uid);
+
+    await runTransaction(this.fs, async (tx) => {
+        // 1) LECTURES (avant toute écriture)
+        const [roomSnap, playerSnap] = await Promise.all([tx.get(roomRef), tx.get(playerRef)]);
+        const now = serverTimestamp();
+
+        const data  = roomSnap.data() || {};
+        const roles = { ...(data['roles'] || {}) } as Record<string, 'hunter' | 'prey'>;
+
+        if (opts.singleHunter && role === 'hunter') {
+        for (const k of Object.keys(roles)) roles[k] = 'prey';
+        roles[uid] = 'hunter';
+        tx.update(roomRef, { roles, hunterUid: uid, updatedAt: now } as any);
+        } else {
+        roles[uid] = role;
+        tx.update(roomRef, { roles, updatedAt: now } as any);
+        }
+
+        // 2) ÉCRITURES
+        const base = {
+        displayName: input.displayName,
+        role,
+        updatedAt: now,
+        ...(playerSnap.exists() ? {} : { createdAt: now }),
+        };
+        tx.set(playerRef, base, { merge: true });
+    });
+
+    return uid;
+    }
+
+  async setPlayerRole(
+    roomId: string,
+    targetUid: string,
+    roleIn: 'hunter' | 'prey',
+    opts: { singleHunter?: boolean } = { singleHunter: true }
+    ): Promise<void> {
+    const role = (String(roleIn).toLowerCase() === 'hunter') ? 'hunter' : 'prey';
+    const roomRef   = doc(this.fs, 'rooms', roomId);
+    const playerRef = doc(this.fs, 'rooms', roomId, 'players', targetUid);
+
+    await runTransaction(this.fs, async (tx) => {
+        // 1) LECTURES
+        const [roomSnap, playerSnap] = await Promise.all([tx.get(roomRef), tx.get(playerRef)]);
+        const now = serverTimestamp();
+
+        const data  = roomSnap.data() || {};
+        const roles = { ...(data['roles'] || {}) } as Record<string, 'hunter' | 'prey'>;
+
+        if (opts.singleHunter && role === 'hunter') {
+        for (const k of Object.keys(roles)) roles[k] = 'prey';
+        roles[targetUid] = 'hunter';
+        tx.update(roomRef, { roles, hunterUid: targetUid, updatedAt: now } as any);
+        } else {
+        roles[targetUid] = role;
+        tx.update(roomRef, { roles, updatedAt: now } as any);
+        }
+
+        // 2) ÉCRITURES
+        const base = {
+        role,
+        updatedAt: now,
+        ...(playerSnap.exists() ? {} : { createdAt: now }),
+        };
+        tx.set(playerRef, base, { merge: true });
+    });
+    }
+
+  async removePlayer(roomId: string, targetUid: string): Promise<void> {
+    const roomRef   = doc(this.fs, 'rooms', roomId);
+    const playerRef = doc(this.fs, 'rooms', roomId, 'players', targetUid);
+
+    await runTransaction(this.fs, async (tx) => {
+        // 1) LECTURES
+        const [roomSnap] = await Promise.all([tx.get(roomRef)]);
+        const now = serverTimestamp();
+
+        const data  = roomSnap.data() || {};
+        const roles = { ...(data['roles'] || {}) } as Record<string, 'hunter' | 'prey'>;
+        let hunterUid = (data as any)['hunterUid'] as string | undefined;
+
+        if (roles[targetUid]) delete roles[targetUid];
+        if (hunterUid === targetUid) hunterUid = undefined;
+
+        // 2) ÉCRITURES
+        tx.update(roomRef, { roles, hunterUid: hunterUid ?? null, updatedAt: now } as any);
+        // (soft delete côté player; remplace par deleteDoc si tes règles le permettent)
+        tx.set(playerRef, { disabled: true, updatedAt: now }, { merge: true });
+    });
+    }   
+
+  async emitTag(roomId: string, actorUid: string, victimUid: string, x: number, y: number): Promise<void> {
+    if (!roomId || !actorUid || !victimUid) throw new Error('missing-params');
+    await addDoc(collection(this.fs, `rooms/${roomId}/events`), {
+      type: 'tag',
+      hunterUid: actorUid,
+      victimUid,
+      x, y,
+      at: serverTimestamp(), // cohérent avec MonitorRead.latestEvents$ (champ 'at')
+    });
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\monitor-read.service.ts
+REL:  src\app\services\monitor-read.service.ts
+────────────────────────────────────────────────────────────
+import { Injectable, inject } from '@angular/core';
+import {
+  Firestore, CollectionReference, collection, collectionData, collectionGroup,
+  doc, docData, query, orderBy, where, limit as qLimit, deleteDoc
+} from '@angular/fire/firestore';
+import { combineLatest, map, shareReplay } from 'rxjs';
+
+import {
+  DailyStats, EventItem, EventsStream, RoomDoc, RoomStream,
+  RoomsStream, PlayersStream, PlayerDoc
+} from '../models/monitor.models';
+
+@Injectable({ providedIn: 'root' })
+export class MonitorReadService {
+  private fs = inject(Firestore);
+
+  // --- ROOMS ---------------------------------------------------------
   readonly rooms$: RoomsStream = (() => {
     const col = collection(this.fs, 'rooms') as CollectionReference<RoomDoc>;
     return collectionData(col, { idField: 'id' }).pipe(
       map(list => list ?? []),
-      shareReplay({ bufferSize: 1, refCount: true }),
+      shareReplay({ bufferSize: 1, refCount: true })
     );
   })();
 
+  room$(roomId: string): RoomStream {
+    const d = doc(this.fs, 'rooms', roomId);
+    return docData(d, { idField: 'id' }).pipe(
+      map((r: any) => (r ?? null) as RoomDoc | null),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
 
-  readonly latestEvents$ = (() => {
+  // --- PLAYERS -------------------------------------------------------
+  players$(roomId: string): PlayersStream {
+    const col = collection(this.fs, 'rooms', roomId, 'players') as CollectionReference<PlayerDoc>;
+    return collectionData(col, { idField: 'uid' }).pipe(
+      map(list => list ?? []),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
+
+  // --- EVENTS --------------------------------------------------------
+  events$(roomId: string, limit = 50): EventsStream {
+    const col = collection(this.fs, 'rooms', roomId, 'events') as CollectionReference<EventItem>;
+    const qy = query(col, orderBy('at', 'desc'), qLimit(limit));
+    return collectionData(qy, { idField: 'id' }).pipe(
+      map(list => list ?? []),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
+
+  // Derniers événements globaux (monitor)
+  readonly latestEvents$: EventsStream = (() => {
     const cg = collectionGroup(this.fs, 'events');
     const qy = query(cg, orderBy('at', 'desc'), qLimit(100));
     return collectionData(qy, { idField: 'id' }).pipe(
       map(list => (list ?? []) as EventItem[]),
-      shareReplay({ bufferSize: 1, refCount: true }),
+      shareReplay({ bufferSize: 1, refCount: true })
     );
   })();
 
-  room$(roomId: string): RoomDoc {
-    const cached = this._roomCache.get(roomId);
-    if (cached) return cached;
-
-    const d = doc(this.fs, 'rooms', roomId);
-    const stream: any = docData(d, { idField: 'id' }).pipe(
-      map(r => (r ?? {}) as RoomDoc),
-      distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
-      shareReplay({ bufferSize: 1, refCount: true }),
-    );
-    this._roomCache.set(roomId, stream);
-    return stream;
-  }
-
-  // --- 2) PLAYERS & EVENTS ----------------------------------------------------
-  players$(roomId: string): PlayersStream {
-    const cached = this._playersCache.get(roomId);
-    if (cached) return cached;
-
-    const col = collection(this.fs, 'rooms', roomId, 'players') as CollectionReference<PlayerDoc>;
-    const stream: PlayersStream = collectionData(col, { idField: 'uid' }).pipe(
-      map(list => list ?? []),
-      shareReplay({ bufferSize: 1, refCount: true }),
-    );
-    this._playersCache.set(roomId, stream);
-    return stream;
-  }
-
-  events$(roomId: string, limit = 50): EventsStream {
-    const key = `${roomId}#${limit}`;
-    const cached = this._eventsCache.get(key);
-    if (cached) return cached;
-
-    const col = collection(this.fs, 'rooms', roomId, 'events') as CollectionReference<EventItem>;
-    const q = query(col, orderBy('at', 'desc'), qLimit(limit));
-    const stream: EventsStream = collectionData(q, { idField: 'id' }).pipe(
-      map(list => list ?? []),
-      shareReplay({ bufferSize: 1, refCount: true }),
-    );
-    this._eventsCache.set(key, stream);
-    return stream;
-  }
-
-  // --- 3) POSITIONS (RTDB) ----------------------------------------------------
-  positions$(roomId: string): PositionsStream {
-    const cached = this._positionsCache.get(roomId);
-    if (cached) return cached;
-
-    const ref = rtdbRef(this.rtdb, `positions/${roomId}`);
-    const stream: PositionsStream =
-      objectVal<Record<string, { x: number; y: number }> | null>(ref).pipe(
-        map(obj => {
-          if (!obj) return [] as PosDTO[];
-          return Object.entries(obj)
-            .filter(([, v]) => isDefined(v) && isFinite(v.x) && isFinite(v.y))
-            .map(([uid, v]) => ({ uid, x: v.x, y: v.y } as PosDTO));
-        }),
-        shareReplay({ bufferSize: 1, refCount: true }),
-      );
-    this._positionsCache.set(roomId, stream);
-    return stream;
-  }
-
-  // --- 4) VUE ENRICHIE (pour canvas) ------------------------------------------
-  liveMap$(roomId: string): LiveMapStream {
-    const cached = this._liveMapCache.get(roomId);
-    if (cached) return cached;
-
-    const stream: LiveMapStream = this.positions$(roomId).pipe(
-      shareReplay({ bufferSize: 1, refCount: true }),
-    );
-    this._liveMapCache.set(roomId, stream);
-    return stream;
-  }
-
-  // --- 5) HELPERS --------------------------------------------------------------
-  roleDictFromRoom(room: RoomDoc | null | undefined) {
-    const dict: Record<string, PlayerDoc['role']> = {};
-    if (!room) return dict;
-    if (room.roles) for (const [uid, r] of Object.entries(room.roles)) dict[uid] = r;
-    if (room.hunterUid) dict[room.hunterUid] = 'hunter';
-    return dict;
-  }
-
-  enrichPositionsWithRoles(
-    positions: PosDTO[],
-    roleDict: Record<string, PlayerDoc['role']>,
-    players: PlayerDoc[] = []
-  ): PosDTO[] {
-    if (!positions?.length) return [];
-    const fallback: Record<string, PlayerDoc['role']> = {};
-    for (const p of players) {
-      if (p.uid && p.role && !roleDict[p.uid]) fallback[p.uid] = p.role;
-    }
-    return positions.map(p => {
-      const role = (p.uid && (roleDict[p.uid] || fallback[p.uid])) ?? undefined;
-      return role ? { ...p, role } : p;
-    });
-  }
-  /** Stats agrégées de la journée courante (heure locale) */
-  readonly dailyStats$: Observable<DailyStats> = (() => {
+  // --- STATS JOURNALIÈRES -------------------------------------------
+  readonly dailyStats$ = (() => {
     const start = startOfTodayLocal();
     const end   = startOfTomorrowLocal();
 
-    // a) Nombre d’événements de type "tag" aujourd’hui (via collectionGroup)
     const eventsToday$ = (() => {
-      // events est une sous-collection: rooms/{id}/events → on utilise collectionGroup
       const cg = collectionGroup(this.fs, 'events');
-      const qy = query(
-        cg,
+      const qy = query(cg,
         where('type', '==', 'tag'),
-        where('at', '>=', start),  // nécessite que 'at' soit un Timestamp/Date comparable
+        where('at', '>=', start),
         where('at', '<',  end),
       );
       return collectionData(qy, { idField: 'id' }).pipe(
@@ -18480,14 +19031,12 @@ export class MonitorService {
       );
     })();
 
-    // b) Infos rooms (totales / running / idle) + lastEventAt (max)
     const roomsInfo$ = this.rooms$.pipe(
       map((rooms) => {
         const roomsTotal   = rooms.length;
         const roomsRunning = rooms.filter(r => r.state === 'running').length;
         const roomsIdle    = rooms.filter(r => r.state === 'idle').length;
 
-        // max lastEventAt si dispo
         let lastEventAt: any | undefined = undefined;
         for (const r of rooms) {
           const v = (r as any)?.lastEventAt;
@@ -18497,13 +19046,11 @@ export class MonitorService {
           const b = lastEventAt?.toMillis ? lastEventAt.toMillis() : new Date(lastEventAt).getTime?.();
           if ((a ?? 0) > (b ?? 0)) lastEventAt = v;
         }
-
         return { roomsTotal, roomsRunning, roomsIdle, lastEventAt };
       }),
       shareReplay({ bufferSize: 1, refCount: true })
     );
 
-    // c) Combine → DailyStats
     return combineLatest([eventsToday$, roomsInfo$]).pipe(
       map(([tagsTotal, r]) => ({
         tagsTotal,
@@ -18516,29 +19063,42 @@ export class MonitorService {
     );
   })();
 
-
-
-  /** ✅ Alias pour compatibilité avec les composants existants */
-  roomById$(roomId: string): RoomDoc {
-    return this.room$(roomId);
+  // --- HELPERS -------------------------------------------------------
+  deleteRoom(roomId: string): Promise<void> {
+    return deleteDoc(doc(this.fs, 'rooms', roomId));
   }
 
-  async deleteRoom(roomId: string): Promise<void> {
-    await deleteDoc(doc(this.fs, 'rooms', roomId));
+  roleDictFromRoom(room: RoomDoc | null | undefined) {
+    const dict: Record<string, string> = {};
+    if (!room) return dict;
+    if (room.roles) {
+      for (const [uid, r] of Object.entries(room.roles)) {
+        if (r) dict[uid] = r;
+      }
+    }
+    const anyRoom = room as any;
+    if (anyRoom?.hunterUid) dict[anyRoom.hunterUid] = 'hunter';
+    return dict;
   }
 
+  enrichPositionsWithRoles(positions: Array<{uid?: string; x: number; y: number}>,
+                           roleDict: Record<string, string | undefined>,
+                           players: PlayerDoc[] = []) {
+    if (!positions?.length) return [];
+    const fallback: Record<string, string> = {};
+    for (const p of players) {
+      if (p.uid && p.role && !roleDict[p.uid]) fallback[p.uid] = p.role;
+    }
+    return positions.map(p => {
+      const role = (p.uid && (roleDict[p.uid] || fallback[p.uid])) ?? undefined;
+      return role ? { ...p, role } : p;
+    });
+  }
 }
-  function startOfTodayLocal(): Date {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
-  function startOfTomorrowLocal(): Date {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
+
+// Helpers dates locales
+function startOfTodayLocal(): Date { const d = new Date(); d.setHours(0,0,0,0); return d; }
+function startOfTomorrowLocal(): Date { const d = new Date(); d.setDate(d.getDate()+1); d.setHours(0,0,0,0); return d; }
 
 
 ────────────────────────────────────────────────────────────
@@ -18690,6 +19250,44 @@ export class PositionsService {
     this._players$.next({});
     this._bots$.next({});
     this._positions$.next({});
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\rtdb-positions.service.ts
+REL:  src\app\services\rtdb-positions.service.ts
+────────────────────────────────────────────────────────────
+import { Injectable, inject } from '@angular/core';
+import { Database, ref as rtdbRef } from '@angular/fire/database';
+import { objectVal } from 'rxfire/database';
+import { map, shareReplay } from 'rxjs';
+import { LiveMapStream, PositionsStream, PosDTO } from '../models/monitor.models';
+
+const isDefined = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
+
+@Injectable({ providedIn: 'root' })
+export class RtdbPositionsService {
+  private rtdb = inject(Database);
+
+  positions$(roomId: string): PositionsStream {
+    const ref = rtdbRef(this.rtdb, `positions/${roomId}`);
+    return objectVal<Record<string, { x: number; y: number }> | null>(ref).pipe(
+      map(obj => {
+        if (!obj) return [] as PosDTO[];
+        return Object.entries(obj)
+          .filter(([, v]) => isDefined(v) && isFinite(v.x) && isFinite(v.y))
+          .map(([uid, v]) => ({ uid, x: v.x, y: v.y } as PosDTO));
+      }),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+  }
+
+  // pour le canvas
+  liveMap$(roomId: string): LiveMapStream {
+    return this.positions$(roomId).pipe(
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
   }
 }
 
@@ -18891,6 +19489,606 @@ export class FieldCanvasComponent implements AfterViewInit, OnDestroy {
     return { cx: nx * cv.width, cy: cv.height - ny * cv.height };
   }
 }
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\players-controls\players-controls.component.html
+REL:  src\app\sim\players-controls\players-controls.component.html
+────────────────────────────────────────────────────────────
+<mat-card appearance="outlined" class="players-card">
+  <mat-card-header>
+    <mat-card-title>Joueurs</mat-card-title>
+    <mat-card-subtitle>
+      <span class="mono">#{{ roomId() || '—' }}</span>
+      <span class="seps">•</span>
+      total: {{ counts().total }} —
+      chasseur: {{ counts().hunters }} —
+      proies: {{ counts().preys }}
+    </mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-divider></mat-divider>
+
+  <mat-card-content>
+    <!-- Ajout -->
+    <div class="add-row">
+      <mat-form-field appearance="outline" class="w-name">
+        <mat-label>Nom du joueur</mat-label>
+        <input
+          matInput
+          [disabled]="busyAdd()"
+          [value]="displayName()"
+          (input)="displayName.set($any($event.target).value)"
+          (keyup.enter)="addPlayer()" />
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="w-role">
+        <mat-label>Rôle</mat-label>
+        <mat-select [disabled]="busyAdd()" [value]="role()" (selectionChange)="role.set($any($event.value))">
+          <mat-option value="prey">Proie</mat-option>
+          <mat-option value="hunter">Chasseur</mat-option>
+        </mat-select>
+      </mat-form-field>
+
+      <button mat-raised-button color="primary" (click)="addPlayer()" [disabled]="busyAdd() || !displayName().trim()">
+        <mat-icon>person_add</mat-icon>
+        Ajouter
+      </button>
+    </div>
+
+    <mat-divider class="m12"></mat-divider>
+
+   <!-- Toolbar de la liste -->
+<div class="list-toolbar">
+  <mat-form-field appearance="outline" class="w-search">
+    <mat-label>Rechercher un joueur</mat-label>
+    <input matInput placeholder="Nom ou UID"
+           [value]="query()"
+           (input)="query.set(($any($event.target)?.value ?? '').trim())">
+    <button mat-icon-button matSuffix type="button" aria-label="Effacer"
+            *ngIf="query()"
+            (click)="query.set('')">
+      <mat-icon>close</mat-icon>
+    </button>
+  </mat-form-field>
+
+  <mat-button-toggle-group [value]="sortBy()" (change)="sortBy.set($any($event.value))" class="w-sort" appearance="legacy">
+    <mat-button-toggle value="role"><mat-icon>group</mat-icon> Rôle</mat-button-toggle>
+    <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
+  </mat-button-toggle-group>
+</div>
+
+<!-- Liste améliorée -->
+<mat-nav-list class="list list--compact">
+  @for (p of filteredPlayersSig(); track $index) {
+    <a mat-list-item class="row" [class.hunter]="isHunter(p)">
+      <!-- Avatar -->
+      <div matListItemIcon class="avatar" [class.hunter]="isHunter(p)">
+        {{ initials(p?.displayName, ((p?.uid || '').slice(0,2)).toUpperCase()) }}
+      </div>
+
+      <!-- Corps compact -->
+      <div matListItemTitle class="body body--compact">
+        <span class="name" [title]="p?.displayName || p?.uid">
+          {{ p?.displayName || p?.uid || '—' }}
+        </span>
+
+        <!-- tags compacts -->
+        <div class="meta">
+          <mat-icon class="role-ico" [matTooltip]="isHunter(p) ? 'Chasseur' : 'Proie'">
+            {{ isHunter(p) ? 'shield_person' : 'hiking' }}
+          </mat-icon>
+          @if (p?.score !== undefined) {
+            <span class="pill" aria-label="score">S: {{ p?.score }}</span>
+          }
+          <span class="uid mono" [matTooltip]="p?.uid || '—'">
+            #{{ (p?.uid || '').slice(0,6) }}
+          </span>
+        </div>
+
+        <!-- Toggle rôle -->
+        <mat-button-toggle-group
+          class="toggle-dense"
+          [value]="isHunter(p) ? 'hunter' : 'prey'"
+          [disabled]="!p?.uid || busyRoleUid() === p?.uid"
+          (change)="p?.uid && setRole($any(p?.uid), $any($event.value))">
+          <mat-button-toggle value="hunter" [matTooltip]="'Chasseur'">
+            <mat-icon>shield_person</mat-icon>
+          </mat-button-toggle>
+          <mat-button-toggle value="prey" [matTooltip]="'Proie'">
+            <mat-icon>hiking</mat-icon>
+          </mat-button-toggle>
+        </mat-button-toggle-group>
+
+        @if (busyRoleUid() === p?.uid) {
+          <mat-progress-spinner mode="indeterminate" diameter="16" class="spinner"></mat-progress-spinner>
+        }
+
+        <!-- Actions -->
+        <button mat-icon-button
+                [disabled]="!p?.uid"
+                [matMenuTriggerFor]="playerMenu"
+                (click)="openMenuFor(p?.uid)"
+                aria-label="Actions joueur">
+        <mat-icon>more_vert</mat-icon>
+        </button>
+      </div>
+    </a>
+    <mat-divider inset></mat-divider>
+  }
+
+  @if (filteredPlayersSig().length === 0) {
+    <div class="empty">
+      <mat-icon>group_off</mat-icon>
+      <span>Aucun joueur ne correspond.</span>
+    </div>
+  }
+</mat-nav-list>
+
+<!-- Menu global -->
+<mat-menu #playerMenu="matMenu" (closed)="currentUid.set('')">
+  <button mat-menu-item
+          (click)="setRole(currentUid(), 'hunter')"
+          [disabled]="busyRoleUid() === currentUid() || !currentUid()">
+    <mat-icon>shield_person</mat-icon>
+    <span>Définir chasseur</span>
+  </button>
+
+  <button mat-menu-item
+          (click)="setRole(currentUid(), 'prey')"
+          [disabled]="busyRoleUid() === currentUid() || !currentUid()">
+    <mat-icon>hiking</mat-icon>
+    <span>Définir proie</span>
+  </button>
+
+  <mat-divider></mat-divider>
+
+  <button mat-menu-item
+          (click)="copyUid(currentUid())"
+          [disabled]="!currentUid()">
+    <mat-icon>content_copy</mat-icon>
+    <span>Copier l’UID</span>
+  </button>
+
+    <button mat-menu-item (click)="remove()" matMenuClose>
+        <mat-icon color="warn">delete</mat-icon>
+        <span class="warn">Retirer</span>
+    </button>
+</mat-menu>
+
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\players-controls\players-controls.component.scss
+REL:  src\app\sim\players-controls\players-controls.component.scss
+────────────────────────────────────────────────────────────
+/* Players Controls — flex-first + full-width friendly */
+.players-card {
+  /* tokens */
+  --gap: 12px;
+  --gap-sm: 8px;
+  --radius: 12px;
+  --avatar: 42px;
+  --tap: 52px;             /* hauteur mini des lignes (touch-friendly) */
+  --max-content: 1200px;   /* largeur max utile en plein écran */
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  /* centré en plein écran, mais prend toute la largeur dispo sur mobile */
+  width: 100%;
+  max-width: var(--max-content);
+  margin-inline: auto;
+    margin-top: 10px;
+    
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .seps { opacity: .5; margin: 0 6px; }
+  .m12  { margin: 12px 0; }
+
+  /* ===== Barre d’ajout (flex, wrap) ===== */
+  .add-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap);
+    align-items: flex-end;
+    margin: 8px 0 4px;
+
+    .w-name, .w-role {
+      flex: 1 1 260px;     /* s’étire, mini 260px */
+      min-width: 220px;
+    }
+    .mat-mdc-raised-button {
+      flex: 0 0 auto;
+      min-height: var(--tap);
+      padding-inline: 16px;
+    }
+  }
+
+  /* ===== Toolbar (recherche / tri) ===== */
+  .list-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap);
+    align-items: center;
+    margin: 6px 0 10px;
+
+    .w-search {
+      flex: 1 1 300px;
+      min-width: 220px;
+    }
+    .w-sort {
+      display: inline-flex;
+      gap: var(--gap-sm);
+      align-items: center;
+      flex: 0 0 auto;
+
+      .mat-button-toggle-appearance-standard .mat-button-toggle-button {
+        min-height: 40px;
+        padding: 0 12px;
+      }
+    }
+  }
+
+  /* ===== Liste ===== */
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 0; /* séparateurs gèrent l’espacement */
+
+    .row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;              /* centrage vertical */
+      gap: 12px;
+      padding: 6px 8px 6px 0;
+      min-height: var(--tap);           /* hauteur confortable */
+      border-radius: var(--radius);
+      transition: background-color .15s ease;
+
+      &:hover {
+        background: color-mix(in oklab, var(--mat-sys-surface), var(--mat-sys-primary) 4%);
+      }
+
+      /* structure des colonnes en flex */
+      .avatar {
+        flex: 0 0 auto;
+        width: var(--avatar);
+        height: var(--avatar);
+        min-width: var(--avatar);
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        letter-spacing: .2px;
+        background: #eceff1; color: #37474f;
+
+        &.hunter { background: #e3f2fd; color: #0d47a1; }
+        ::ng-deep .mat-badge-content { font-weight: 700; line-height: 1; }
+      }
+
+      .body {
+        flex: 1 1 auto;                 /* prend la largeur */
+        min-width: 0;                   /* ellipsis OK */
+        display: flex;
+        flex-direction: row;
+        gap: 6px;
+
+        .topline {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+
+          .name {
+            font-weight: 600;
+            max-width: 44ch;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            line-height: 1.2;
+          }
+
+          .chips { --mdc-chip-outline-color: rgba(0,0,0,.12); }
+        }
+
+        .role-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        
+          ::ng-deep .mat-button-toggle-group {
+            border-radius: 999px;
+            .mat-button-toggle-appearance-standard .mat-button-toggle-button {
+              min-height: 36px;
+              padding: 0 10px;
+            }
+          }
+          .lbl { margin-left: 4px; }
+        }
+      }
+
+      .actions {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+
+        button[mat-icon-button] {
+          width: 44px; height: 44px; /* zone de tap confortable */
+        }
+        .spinner { --mdc-circular-progress-active-indicator-width: 2px; }
+        .warn { color: var(--mat-sys-error); }
+      }
+
+      &.hunter .name { color: #0d47a1; }
+    }
+  }
+
+  /* ===== état vide ===== */
+  .empty {
+    padding: 14px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    opacity: .75;
+  }
+
+  /* ===== Accessibilité ===== */
+  :is(button, a[mat-list-item]) { outline: none; }
+  :is(button, a[mat-list-item]):focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--mat-sys-primary), transparent 70%);
+    border-radius: 10px;
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 720px) {
+    --avatar: 40px;
+    --tap: 50px;
+    .body .topline .name { max-width: 32ch; }
+  }
+
+  @media (max-width: 420px) {
+    --avatar: 36px;
+    --tap: 48px;
+    .body .topline .name { max-width: 26ch; }
+  }
+
+  /* ===== Dark mode léger ===== */
+  @media (prefers-color-scheme: dark) {
+    .list .row:hover {
+      background: color-mix(in oklab, var(--mat-sys-surface), var(--mat-sys-primary) 8%);
+    }
+    .avatar {
+      background: color-mix(in oklab, #000, #fff 12%);
+      color: #e6e6e6;
+      &.hunter { background: color-mix(in oklab, #0d47a1, #fff 85%); color: #082b61; }
+    }
+  }
+}
+
+:host ::ng-deep .mat-button-toggle-label-content {
+ padding-left: 15px ;        /* ⇦ ajuste comme tu veux */
+}
+
+:host ::ng-deep .mdc-list-item { min-height: 100px !important; }
+
+
+.list--compact {
+  .row { min-height: 44px; padding: 2px 6px 2px 0; gap: 8px; }
+  .avatar { width: 34px; height: 34px; font-size: 0.9rem; }
+  .body--compact { display: flex; align-items: center; gap: 8px; }
+  .name { font-weight: 600; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { display: inline-flex; align-items: center; gap: 6px; opacity: .8; font-size: .82rem; }
+  .meta .role-ico { font-size: 18px; line-height: 18px; width: 18px; height: 18px; }
+  .pill { padding: 2px 6px; border-radius: 999px; background: rgba(0,0,0,.06); }
+  .uid { letter-spacing: .2px; }
+  .role-toggle--compact .mat-button-toggle-group { border-radius: 999px; }
+  .toggle-dense .mat-button-toggle-appearance-standard .mat-button-toggle-button { padding: 0 6px; min-height: 32px; }
+  .actions button[mat-icon-button] { width: 40px; height: 40px; }
+  .spinner { --mdc-circular-progress-active-indicator-width: 2px; }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\players-controls\players-controls.component.ts
+REL:  src\app\sim\players-controls\players-controls.component.ts
+────────────────────────────────────────────────────────────
+import {
+  Component, ChangeDetectionStrategy, inject, input, signal, computed
+} from '@angular/core';
+import { AsyncPipe, JsonPipe, NgFor, NgIf, TitleCasePipe } from '@angular/common';
+
+import { MatCardModule } from '@angular/material/card';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatListModule } from '@angular/material/list';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatBadgeModule } from '@angular/material/badge';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { map, switchMap } from 'rxjs/operators';
+import { MonitorReadService } from '../../services/monitor-read.service';
+import { MonitorActionsService } from '../../services/monitor-actions.service';
+import { PlayerDoc } from '../../models/monitor.models';
+import { MatSnackBar } from '@angular/material/snack-bar';
+
+type RoleSimple = 'hunter' | 'prey';
+type SortKey = 'none' | 'role' | 'name';
+@Component({
+  selector: 'app-players-controls',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    // Angular
+    AsyncPipe, NgFor, NgIf, TitleCasePipe, FormsModule, ReactiveFormsModule,
+    // Material
+    MatCardModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    MatButtonModule, MatIconModule, MatChipsModule, MatDividerModule,
+    MatListModule, MatTooltipModule, MatButtonToggleModule,
+    MatMenuModule, MatBadgeModule, MatProgressSpinnerModule,JsonPipe
+  ],
+  templateUrl: './players-controls.component.html',
+  styleUrls: ['./players-controls.component.scss'],
+})
+export class PlayersControlsComponent {
+  /** Room ciblée */
+  roomId = input<string>('');
+snack = inject(MatSnackBar);
+  // Formulaire "ajout joueur"
+  displayName = signal<string>('');
+  role = signal<RoleSimple>('prey');
+
+  // Filtres / tri pour la liste
+  query = signal<string>('');                       // recherche texte
+  sortBy = signal<SortKey>('none');         // tri: rôle ou alphabétique
+
+  // UI states
+  busyAdd = signal<boolean>(false);
+  busyRoleUid = signal<string | null>(null);
+  busyRemoveUid = signal<string | null>(null);
+
+currentUid = signal<string>('');
+openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
+
+  private read = inject(MonitorReadService);
+  private act = inject(MonitorActionsService);
+
+  /** Flux des joueurs de la room */
+  readonly playersSig = toSignal(
+    toObservable(this.roomId).pipe(
+      switchMap(id => this.read.players$(id || '')),
+      map(list => (list ?? []) as PlayerDoc[])
+    ),
+    {
+      initialValue: [] as PlayerDoc[],
+      requireSync: false, // désambiguïe l'overload async de toSignal
+    }
+  );
+
+  /** Liste filtrée + triée (utilisée par le template) */
+  readonly filteredPlayersSig = computed(() => {
+    const q = this.query().toLowerCase();
+    const sort = this.sortBy();
+
+    let arr = [...this.playersSig()].filter(Boolean);
+
+    if (q) {
+        arr = arr.filter(p => {
+        const hay = `${p.displayName ?? ''} ${p.uid ?? ''}`.toLowerCase();
+        return hay.includes(q);
+        });
+    }
+
+    if (sort === 'role') {
+        arr.sort((a, b) => {
+        const ah = this.isHunter(a) ? 0 : 1;
+        const bh = this.isHunter(b) ? 0 : 1;
+        if (ah !== bh) return ah - bh;
+        return (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? '');
+        });
+    } else if (sort === 'name') {
+        arr.sort((a, b) => (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? ''));
+    }
+    // sort === 'none' → pas de tri, on garde l’ordre d’origine
+
+    return arr;
+    });
+
+  /** Petits compteurs pour l’en-tête */
+  readonly counts = computed(() => {
+    const arr = this.playersSig();
+    const total = arr.length;
+    const hunters = arr.filter(p => normRole(p.role) === 'hunter').length;
+    const preys = total - hunters;
+    return { total, hunters, preys };
+  });
+
+  // === Actions ===
+
+  async addPlayer(): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    const name = this.displayName().trim();
+    const role = this.role();
+
+    if (!roomId || !name) return;
+
+    this.busyAdd.set(true);
+    try {
+      await this.act.addOrUpdatePlayer(roomId, { displayName: name, role }, { singleHunter: true });
+      this.displayName.set('');
+      this.role.set('prey');
+    } finally {
+      this.busyAdd.set(false);
+    }
+  }
+
+  async setRole(uid: string, role: RoleSimple): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    if (!roomId || !uid) return;
+    this.busyRoleUid.set(uid);
+    try {
+      await this.act.setPlayerRole(roomId, uid, role, { singleHunter: true });
+    } finally {
+      this.busyRoleUid.set(null);
+    }
+  }
+
+    async remove(uid?: string): Promise<void> {
+        const roomId = (this.roomId() || '').trim();
+        const target = (uid ?? this.currentUid()).trim();
+
+        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+        if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
+        if (!confirm('Retirer ce joueur ?')) return;
+
+        this.busyRemoveUid.set(target);
+        try {
+            await this.act.removePlayer(roomId, target);
+            this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
+        } catch (e: any) {
+            console.error('remove failed', e);
+            this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
+        } finally {
+            this.busyRemoveUid.set(null);
+            this.currentUid.set('');
+        }
+    }
+
+
+  // Utils
+  isHunter(p: any) { return normRole(p?.role) === 'hunter'; }
+  initials(name?: string, fallback = '??') {
+    const s = (name ?? '').trim();
+    if (!s) return fallback;
+    const parts = s.split(/\s+/).slice(0, 2).map(x => x[0]?.toUpperCase() ?? '');
+    return parts.join('') || fallback;
+  }
+
+
+    copyUid(uid?: string) {
+    const v = uid ?? this.currentUid();
+    if (!v) return;
+    navigator.clipboard?.writeText(v).catch(() => {});
+    }
+  
+}
+
+function normRole(r?: any): RoleSimple {
+  const v = String(r ?? '').toLowerCase().trim();
+  return v === 'hunter' || v === 'chasseur' ? 'hunter' : 'prey';
+}
+
 
 
 ────────────────────────────────────────────────────────────
@@ -19112,14 +20310,15 @@ import { MatCardModule }       from '@angular/material/card';
 
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
-import { MonitorService } from '../../services/monitor.service';
+import { MonitorReadService } from '../../services/monitor-read.service';
 
+/** ⬅️ Changement : propriétés "présentes mais possiblement undefined" */
 type RoomItem = {
   id: string;
-  name?: string;
-  mode?: string; // affichage libre
-  state?: 'idle' | 'running' | string;
-  lastEventAt?: any;
+  name: string | undefined;
+  mode: string | undefined; // affichage libre
+  state: 'idle' | 'running' | string | undefined;
+  lastEventAt: any;
 };
 
 type StateFilter = 'all' | 'running' | 'idle';
@@ -19148,19 +20347,21 @@ export class RoomSelectComponent {
   filter = signal<StateFilter>('all');
   sortBy = signal<SortBy>('recent');
 
-  private monitor = inject(MonitorService);
+  private read = inject(MonitorReadService);
 
-  /** rooms$ → RoomItem[] (conversion pour affichage + compat types) */
-  private roomsSig = toSignal(
-    this.monitor.rooms$.pipe(
-      map(rooms => (rooms ?? []).map(r => ({
-        id: r.id!, name: r.name,
-        mode: (r as any).mode as string | undefined,
-        state: r.state, lastEventAt: (r as any).lastEventAt,
-      } satisfies RoomItem)))
-    ),
-    { initialValue: [] as any[] }
-  );
+  /** ⬅️ Changement : on fixe le générique <RoomItem[]> et l'initialValue matche exactement */
+ private roomsSig = toSignal(
+  this.read.rooms$.pipe(
+    map(rooms => (rooms ?? []).map(r => ({
+      id: r.id!,
+      name: (r as any).name ?? undefined,
+      mode: (r as any).mode ?? undefined,
+      state: (r as any).state ?? undefined,
+      lastEventAt: (r as any).lastEventAt,
+    })) as RoomItem[])
+  ),
+  { initialValue: [] as RoomItem[] }
+);
 
   /** Liste filtrée + triée */
   filteredRooms = computed<RoomItem[]>(() => {
@@ -19179,11 +20380,7 @@ export class RoomSelectComponent {
     }
 
     if (sort === 'recent') {
-      rooms.sort((a, b) => {
-        const av = a.lastEventAt?.toMillis ? a.lastEventAt.toMillis() : new Date(a.lastEventAt ?? 0).getTime();
-        const bv = b.lastEventAt?.toMillis ? b.lastEventAt.toMillis() : new Date(b.lastEventAt ?? 0).getTime();
-        return (bv || 0) - (av || 0);
-      });
+      rooms.sort((a, b) => (toMs(b.lastEventAt) || 0) - (toMs(a.lastEventAt) || 0));
     } else {
       rooms.sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
     }
@@ -19206,7 +20403,6 @@ export class RoomSelectComponent {
   setSort(v: SortBy) { this.sortBy.set(v); }
   onSelect(id: string) { this.valueChange.emit(id); }
   emitCurrent() { if (this.value()) this.valueChange.emit(this.value()); }
-
   refresh() { this.query.set(this.query()); }
 
   // Helpers d’affichage
@@ -19217,6 +20413,16 @@ export class RoomSelectComponent {
       default:        return undefined;
     }
   }
+}
+
+/** Util: transforme Timestamp/Date/number/undefined → ms */
+function toMs(v: any): number {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  if (v instanceof Date) return v.getTime?.() ?? 0;
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  const t = new Date(v as any).getTime?.();
+  return Number.isFinite(t) ? (t as number) : 0;
 }
 
 
@@ -19246,55 +20452,75 @@ REL:  src\app\sim\simulator\match-simulator.component.html
 
   <mat-card-content>
 
+    <!-- AUCUNE ROOM → on propose créer et/ou sélectionner -->
     @if (!roomId()) {
       <app-create-room
         [name]="newRoomName()"
         (nameChange)="newRoomName.set($event)"
         (create)="createRoomAndUseIt()">
       </app-create-room>
+
       <mat-divider style="margin:12px 0;"></mat-divider>
+
+      <app-room-select
+        [value]="roomId()"
+        (valueChange)="roomId.set($event)">
+      </app-room-select>
+
+      <!-- Optionnel : petit hint -->
+      <p style="margin-top:12px; opacity:.7">
+        Choisis une room (ou crée-en une) pour afficher les contrôles de simulation.
+      </p>
     }
 
-    <app-room-select
-      [value]="roomId()"
-      (valueChange)="roomId.set($event)">
-    </app-room-select>
+    <!-- ROOM SÉLECTIONNÉE → on affiche tout le reste -->
+    @if (roomId()) {
+      <!-- garder la sélection visible pour changer de room à la volée -->
+      <app-room-select
+        [value]="roomId()"
+        (valueChange)="roomId.set($event)">
+      </app-room-select>
 
-    <!-- 1) Room -->
-    <app-room-input
-      [roomId]="roomId()"
-      (roomIdChange)="roomId.set($event)"
-      (listen)="listen()"
-      (unlisten)="unlisten()">
-    </app-room-input>
+      <!-- 1) Room -->
+      <app-room-input
+        [roomId]="roomId()"
+        (roomIdChange)="roomId.set($event)"
+        (listen)="listen()"
+        (unlisten)="unlisten()">
+      </app-room-input>
+      
+ <mat-divider class="m12"></mat-divider>
+  <app-players-controls [roomId]="roomId()"></app-players-controls>
 
-    <!-- 2) Bots -->
-    <app-bots-controls
-      [nbBots]="nbBots()"
-      (nbBotsChange)="nbBots.set($event)"
-      [speed]="speed()"
-      (speedChange)="speed.set($event)"
-      [displayMs]="displayMs"
-      (spawn)="spawnBots()"
-      (start)="start()"
-      (stop)="stop()">
-    </app-bots-controls>
+      <!-- 2) Bots -->
+      <app-bots-controls
+        [nbBots]="nbBots()"
+        (nbBotsChange)="nbBots.set($event)"
+        [speed]="speed()"
+        (speedChange)="speed.set($event)"
+        [displayMs]="displayMs"
+        (spawn)="spawnBots()"
+        (start)="start()"
+        (stop)="stop()">
+      </app-bots-controls>
 
-    <!-- 3) TAG -->
-    @if (dots$ | async; as dots) {
-      <app-tag-controls
-        [dots]="dots"
-        [victimUid]="victimUid()"
-        (victimUidChange)="victimUid.set($event)"
-        (simulate)="simulateTag(dots)">
-      </app-tag-controls>
+      <!-- 3) TAG -->
+      @if (dots$ | async; as dots) {
+        <app-tag-controls
+          [dots]="dots"
+          [victimUid]="victimUid()"
+          (victimUidChange)="victimUid.set($event)"
+          (simulate)="simulateTag(dots)">
+        </app-tag-controls>
+      }
+
+      <!-- 4) Canvas -->
+      <app-field-canvas
+        [world]="{ minX:-45,maxX:45,minY:-30,maxY:30 }"
+        [bots]="bots()">
+      </app-field-canvas>
     }
 
-    <!-- 4) Canvas -->
-    <app-field-canvas
-      [world]="{ minX:-45,maxX:45,minY:-30,maxY:30 }"
-      [bots]="bots()">
-    </app-field-canvas>
   </mat-card-content>
 </mat-card>
 
@@ -19307,7 +20533,7 @@ import { Component, ChangeDetectionStrategy, inject, Injector, signal, effect } 
 import { ActivatedRoute } from '@angular/router';
 import { AsyncPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDividerModule } from '@angular/material/divider';
 
 import { RoomInputComponent } from '../../sim/room-input/room-input.component';
@@ -19317,18 +20543,20 @@ import { TagControlsComponent } from '../../sim/tag-controls/tag-controls.compon
 import { FieldCanvasComponent } from '../../sim/field-canvas/field-canvas.component';
 import { RoomSelectComponent } from '../../sim/room-select/room-select.component';
 
-import { runInInjectionContext } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
-import { Observable, of } from 'rxjs';
+import { Observable } from 'rxjs';
 import { distinctUntilChanged, map, switchMap, filter } from 'rxjs/operators';
 
-import { Database, ref, set, update } from '@angular/fire/database';
-import { MatchService } from '../../services/match.service';
-import { MonitorService } from '../../services/monitor.service';
-import { PositionsService } from '../../services/positions.service';
-import { doc, Firestore, serverTimestamp, writeBatch } from '@angular/fire/firestore';
+import { Database, ref, update } from '@angular/fire/database';
+import { Auth } from '@angular/fire/auth';
 
-type BotLocal = { id: string; x: number; y: number; h: number | null };
+import { PositionsService } from '../../services/positions.service';
+import { BotService } from '../../services/bot.service';
+import { RtdbPositionsService } from '../../services/rtdb-positions.service';
+import { MonitorActionsService } from '../../services/monitor-actions.service';
+import { PlayersControlsComponent } from '../players-controls/players-controls.component';
+
+export type BotLocal = { id: string; x: number; y: number; h: number | null };
 export type DotDTO = { x: number; y: number; uid?: string };
 
 @Component({
@@ -19340,24 +20568,27 @@ export type DotDTO = { x: number; y: number; uid?: string };
     MatCardModule, MatSnackBarModule, MatDividerModule,
     RoomInputComponent, CreateRoomComponent,
     BotsControlsComponent, TagControlsComponent, FieldCanvasComponent,
-    RoomSelectComponent,
+    RoomSelectComponent, PlayersControlsComponent
   ],
   templateUrl: './match-simulator.component.html',
   styleUrls: ['./match-simulator.component.css'],
 })
 export class MatchSimulatorComponent {
-  private snack = inject(MatSnackBar);
   private injector = inject(Injector);
   private db = inject(Database);
   private positions = inject(PositionsService);
-  private monitor = inject(MonitorService);
   private route = inject(ActivatedRoute);
-  private match = inject(MatchService);
+  private botService = inject(BotService);
 
-  private readonly fs = inject(Firestore);
-  
+  // nouveaux services
+  private rtdbPos = inject(RtdbPositionsService);
+  private actions = inject(MonitorActionsService);
+  private auth = inject(Auth);
+
+  // utils
+  displayMs = (v: number | null): string => `${v ?? 0} ms`;
+
   newRoomName = signal<string>('');
-
   roomId = signal<string>('');
   nbBots = signal<number>(6);
   speed = signal<number>(300);
@@ -19375,27 +20606,28 @@ export class MatchSimulatorComponent {
     map(id => (id ?? '').trim()),
     distinctUntilChanged(),
     filter(id => !!id.length),
-    switchMap(id => runInInjectionContext(this.injector, () =>
-      this.monitor.liveMap$(id) as Observable<DotDTO[]>
-    )),
+    switchMap(id => this.rtdbPos.liveMap$(id) as Observable<DotDTO[]>),
   );
 
   async createRoomAndUseIt(): Promise<void> {
     const name = this.newRoomName().trim();
-    if (!name) { this.toast('Donne un nom de room'); return; }
+    if (!name) { this.botService.toast('Donne un nom de room'); return; }
+    const ownerUid = this.auth.currentUser?.uid;
+    if (!ownerUid) { this.botService.toast('Connecte-toi pour créer une room'); return; }
+
     try {
-      const { roomId, name: finalName } = await this.match.createRoom(name);
+      const { roomId, name: finalName } = await this.actions.createRoomWithOwner(name, ownerUid);
       this.roomId.set(roomId);
       this.listen();
-      this.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
+      this.botService.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
     } catch (e: any) {
-      this.toast(`Création échouée : ${e?.message ?? e}`);
+      this.botService.toast(`Création échouée : ${e?.message ?? e}`);
     }
   }
 
   listen(): void {
     const id = this.roomId().trim();
-    if (!id) return this.toast('Entre un Room ID');
+    if (!id) return this.botService.toast('Entre un Room ID');
     this.positions.startListening(id);
   }
 
@@ -19403,14 +20635,14 @@ export class MatchSimulatorComponent {
     this.positions.stop();
   }
 
-// Optionnel : normalise en valeurs attendues par les règles
-normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
-  const r = (role ?? '').toLowerCase().trim();
-  if (r === 'hunter' || r === 'chasseur') return (r as any);
-  if (r === 'prey' || r === 'proie') return (r as any);
-  // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
-  return 'prey';
-}
+  // Optionnel : normalise en valeurs attendues par les règles
+  normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
+    const r = (role ?? '').toLowerCase().trim();
+    if (r === 'hunter' || r === 'chasseur') return (r as any);
+    if (r === 'prey' || r === 'proie') return (r as any);
+    // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
+    return 'prey';
+  }
 
   /**
    * Spawn N bots et leur **assigne un rôle** :
@@ -19419,75 +20651,15 @@ normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
    * Compatible avec tes règles (owner requis pour MAJ room.roles).
    */
   async spawnBots(role: string = 'prey'): Promise<void> {
-    const id = this.roomId().trim();
-    if (!id) return this.toast('Room ID manquant');
-
-    const bounded = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
-    const count = bounded(this.nbBots() | 0, 1, 50);
-
-    const now = Date.now();
-    const list: BotLocal[] = [];
-
-    // 🔒 rôle normalisé (FR/EN) pour matcher isHunter()
-    const normRole = this.normalizeRole(role);
-
-    // Prépare un batch Firestore pour: players/* + room.roles
-    const batch = writeBatch(this.fs); // this.fs doit être injecté: private fs = inject(Firestore);
-
-    // Promesses RTDB en parallèle
-    const rtdbWrites: Promise<any>[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const botId = `bot-${now}-${i}`;
-      const x = this.rnd(-20, 20);
-      const y = this.rnd(-20, 20);
-      list.push({ id: botId, x, y, h: null });
-
-      // 1) RTDB: trace légère temps réel (UI/monitor)
-      rtdbWrites.push(
-        set(ref(this.db, `bots/${id}/${botId}`), {
-          x, y, t: Date.now(),
-          name: `Bot ${i + 1}`,
-          role: normRole,     // le même rôle logique
-          type: 'bot'         // pour distinguer dans l’UI si besoin
-        })
-      );
-
-      // 2) Firestore: doc player (clés whitelisteées par tes règles)
-      const pRef = doc(this.fs, `rooms/${id}/players/${botId}`);
-      batch.set(pRef, {
-        uid: botId,
-        displayName: `🤖 Bot ${i + 1}`,
-        isConnected: false,
-        ready: true,
-        x, y,
-        lastUpdate: serverTimestamp(),
-        role: normRole      // utile si ton UI lit player.role
-      }, { merge: true });
-
-      // 3) Firestore: map des rôles dans la room (source de vérité recommandée)
-      const rRef = doc(this.fs, `rooms/${id}`);
-      // NB: writeBatch n’autorise pas les "merge field paths" directement en set sans options.
-      // On passe par update field path via set + merge ou set() global. Ici on regroupe en un seul set final,
-      // mais le plus simple: un update par bot :
-      batch.set(rRef, { roles: { [botId]: normRole } } as any, { merge: true });
-    }
-
-    // Exécutions
-    await Promise.all(rtdbWrites); // RTDB
-    await batch.commit();          // Firestore
-
-    // État local
-    this.bots.update(b => [...b, ...list]);
-    this.toast(`${count} bot${count > 1 ? 's' : ''} créé${count > 1 ? 's' : ''} (${normRole})`);
+    await this.botService.spawnBots(this.roomId(), role, this.nbBots(), this.bots);
   }
 
   start(): void {
     const id = this.roomId().trim();
-    if (!id) return this.toast('Room ID manquant');
+    if (!id) return this.botService.toast('Room ID manquant');
 
     const bots = this.bots();
-    if (!bots.length) return this.toast('Spawn des bots d’abord');
+    if (!bots.length) return this.botService.toast('Spawn des bots d’abord');
 
     const tick = Math.max(80, this.speed());
     const WORLD = { minX: -45, maxX: 45, minY: -30, maxY: 30 };
@@ -19495,8 +20667,8 @@ normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
     for (let i = 0; i < bots.length; i++) {
       if (bots[i].h != null) continue;
       const h = window.setInterval(async () => {
-        bots[i].x = this.clamp(bots[i].x + this.rnd(-1, 1), WORLD.minX, WORLD.maxX);
-        bots[i].y = this.clamp(bots[i].y + this.rnd(-1, 1), WORLD.minY, WORLD.maxY);
+        bots[i].x = this.botService.clamp(bots[i].x + this.botService.rnd(-1, 1), WORLD.minX, WORLD.maxX);
+        bots[i].y = this.botService.clamp(bots[i].y + this.botService.rnd(-1, 1), WORLD.minY, WORLD.maxY);
         await update(ref(this.db, `bots/${id}/${bots[i].id}`), {
           x: bots[i].x, y: bots[i].y, t: Date.now(),
         });
@@ -19505,7 +20677,7 @@ normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
     }
 
     this.bots.set([...bots]);
-    this.toast('Mouvements démarrés');
+    this.botService.toast('Mouvements démarrés');
   }
 
   stop(): void {
@@ -19517,32 +20689,29 @@ normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
       }
     });
     this.bots.set([...bots]);
-    this.toast('Mouvements stoppés');
+    this.botService.toast('Mouvements stoppés');
   }
 
   async simulateTag(dots: DotDTO[]): Promise<void> {
     const id = this.roomId().trim();
-    if (!id) return this.toast('Room ID manquant');
-    if (!dots?.length) return this.toast('Pas de cibles');
+    if (!id) return this.botService.toast('Room ID manquant');
+    if (!dots?.length) return this.botService.toast('Pas de cibles');
 
     const victim = this.victimUid() || dots[0].uid;
     const target = victim ? dots.find(d => d.uid === victim) : undefined;
-    if (!target || !target.uid) return this.toast('Cible invalide');
+    if (!target || !target.uid) return this.botService.toast('Cible invalide');
+
+    // Acteur = utilisateur courant (comme avant avec MatchService)
+    const actorUid = this.auth.currentUser?.uid;
+    if (!actorUid) { this.botService.toast('Connecte-toi pour émettre un TAG'); return; }
 
     try {
-      await this.match.emitTag(id, target.x, target.y, target.uid);
-      this.toast(`TAG → ${target.uid.slice(0, 6)}…`);
+      await this.actions.emitTag(id, actorUid, target.uid, target.x, target.y);
+      this.botService.toast(`TAG → ${target.uid.slice(0, 6)}…`);
     } catch (e: any) {
-      if (e?.retryInMs) this.toast(`${e.message} (dans ${Math.ceil(e.retryInMs / 1000)}s)`);
-      else this.toast(`TAG refusé : ${e?.message ?? e}`);
+      this.botService.toast(`TAG refusé : ${e?.message ?? e}`);
     }
   }
-
-  // utils
-  displayMs = (v: number | null): string => `${v ?? 0} ms`;
-  private toast = (m: string): void => { this.snack.open(m, 'OK', { duration: 1800 }); };
-  private rnd(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min; }
-  private clamp(v: number, a: number, b: number): number { return Math.max(a, Math.min(b, v)); }
 }
 
 
@@ -19810,7 +20979,9 @@ body {
 
 html, body { height: 100%; }
 body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
-
+.mat-mdc-form-field {
+  margin-top: 20px;
+}
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\tsconfig.app.json

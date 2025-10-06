@@ -17,7 +17,6 @@
         <span>Tag Monitor</span>
       </div>
       <span class="spacer"></span>
-      <!-- bouton fermer/ouvrir -->
       <button mat-icon-button (click)="toggle()" aria-label="Fermer le menu">
         <mat-icon>close</mat-icon>
       </button>
@@ -26,6 +25,15 @@
     <!-- Navigation -->
     <mat-nav-list>
       <h3 matSubheader>Navigation</h3>
+      <a mat-list-item
+        [routerLink]="'/login'"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        matTooltip="Aller à la page de connexion">
+        <mat-icon matListItemIcon>person</mat-icon>
+        <div matListItemTitle>Se connecter</div>
+        <div matListItemLine class="muted">Ouvrir la page login</div>
+      </a>
 
       <a mat-list-item
          *ngFor="let item of nav"
@@ -36,6 +44,8 @@
         <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
         <div matListItemTitle>{{ item.label }}</div>
       </a>
+
+   
 
       <!-- Section Simulation -->
       <mat-divider></mat-divider>
@@ -86,7 +96,6 @@
   <!-- Content -->
   <mat-sidenav-content class="content">
     <mat-toolbar color="primary" class="topbar">
-      <!-- bouton ouvrir/fermer -->
       <button mat-icon-button (click)="toggle()" class="menu-btn" aria-label="Menu">
         <mat-icon>menu</mat-icon>
       </button>
@@ -103,6 +112,13 @@
       <a mat-icon-button routerLink="/simulate" aria-label="Simulation">
         <mat-icon>smart_toy</mat-icon>
       </a>
+
+      <!-- Bouton Login (topbar) -->
+      <a mat-icon-button routerLink="/login" aria-label="Login">
+        <mat-icon>person</mat-icon>
+      </a>
+
+      
     </mat-toolbar>
 
     <main class="page">

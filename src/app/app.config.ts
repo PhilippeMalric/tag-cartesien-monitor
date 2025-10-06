@@ -72,5 +72,10 @@ export const appConfig: ApplicationConfig = {
       if (shouldUseEmulators) connectStorageEmulator(st, '127.0.0.1', 9199);
       return st;
     }),
+     provideFunctions(() => {
+      const fns = getFunctions(theApp, 'northamerica-northeast1');
+      if (shouldUseEmulators) connectFunctionsEmulator(fns, '127.0.0.1', 5001);
+      return fns;
+    }),
   ]
 };

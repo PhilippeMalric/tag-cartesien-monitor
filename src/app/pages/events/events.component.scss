@@ -1,38 +1,43 @@
-h2 {
-  margin: 0 0 .75rem;
-}
+.events-card {
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .hint { opacity: .7; }
 
-.muted {
-  opacity: .7;
-}
-
-ul.events {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-
-  li {
-    padding: .35rem 0;
+  .toolbar {
     display: flex;
-    flex-wrap: wrap;
-    gap: .5rem;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0 16px;
+  }
 
-    time {
-      font-variant-numeric: tabular-nums;
-      opacity: .8;
-      min-width: 9ch; /* rendu plus stable */
-    }
+  .limit-field {
+    width: 140px;
+    min-width: 120px;
+  }
 
-    .arrow {
-      font-weight: 500;
+  .chips {
+    display: inline-flex;
+    gap: 6px;
+    .chip-type {
+      font-weight: 600;
+      letter-spacing: .3px;
     }
+  }
 
-    .coords {
-      opacity: .85;
-    }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
-    .room {
-      opacity: .65;
-    }
+  .meta {
+    font-size: 12px;
+    opacity: .8;
+    .date { margin-right: 8px; }
+    .id { .mono { font-size: 12px; } }
+  }
+
+  .empty {
+    opacity: .7;
+    padding: 16px 4px;
   }
 }

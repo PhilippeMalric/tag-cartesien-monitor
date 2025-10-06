@@ -2,13 +2,16 @@ import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { AsyncPipe, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-import { MonitorService,  PosDTO } from '../../services/monitor.service';
-import { RoomDoc, RoomVM } from '../../models/room.model';
+import { MonitorReadService } from '../../services/monitor-read.service';
+import { RtdbPositionsService } from '../../services/rtdb-positions.service';
+import { RoomDoc, PosDTO } from '../../models/monitor.models';
+import { RoomVM } from '../../models/room.model'; // garde si utilisé dans confirmDelete()
 
-import { Database, ref, objectVal, set, update, get } from '@angular/fire/database';
+import { Database, ref, set, update, get } from '@angular/fire/database';
+import { objectVal } from 'rxfire/database';
 import { Auth } from '@angular/fire/auth';
 import { map } from 'rxjs/operators';
-import { firstValueFrom, Observable } from 'rxjs';
+import { combineLatest, firstValueFrom, Observable } from 'rxjs';
 
 // Carte temps réel (présente sur la page)
 import { RoomLiveMapComponent } from './room-live-map/room-live-map.component';
@@ -28,20 +31,28 @@ type PositionItem = { id: string; isBot: boolean; x: number; y: number };
 })
 export class RoomDetailComponent {
   private route = inject(ActivatedRoute);
-  private monitor = inject(MonitorService);
+  private read = inject(MonitorReadService);
+  private rtdbPos = inject(RtdbPositionsService);
   private db = inject(Database);
   private auth = inject(Auth);
   private router = inject(Router);
 
   readonly roomId: string = this.route.snapshot.paramMap.get('id')!;
 
-  // VM / Room
-  readonly room$: Observable<RoomDoc> =
-    this.monitor.roomById$(this.roomId) as any;
+  // Room seule
+  readonly room$: Observable<RoomDoc> = this.read.room$(this.roomId) as any;
+
+  // Players de la room (séparé)
+  readonly players$ = this.read.players$(this.roomId);
+
+  // VM combiné pour le template (évite d'accéder à room.players)
+  readonly vm$ = combineLatest([this.room$, this.players$]).pipe(
+    map(([room, players]) => ({ room, players }))
+  );
 
   // Positions (live) transformées pour la liste
   readonly positions$: Observable<PositionItem[]> =
-    this.monitor.liveMap$(this.roomId).pipe(
+    this.rtdbPos.liveMap$(this.roomId).pipe(
       map((dots: PosDTO[]) =>
         (dots ?? [])
           .map((d: PosDTO) => ({
@@ -145,7 +156,7 @@ export class RoomDetailComponent {
     if (!ok) return;
 
     try {
-      await this.monitor.deleteRoom(roomId);
+      await this.read.deleteRoom(roomId);
       try { await set(ref(this.db, `bots/${roomId}`), null); } catch {}
       this.router.navigateByUrl('/rooms');
     } catch (e) {

@@ -2,7 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, Injector, signal, effect } 
 import { ActivatedRoute } from '@angular/router';
 import { AsyncPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDividerModule } from '@angular/material/divider';
 
 import { RoomInputComponent } from '../../sim/room-input/room-input.component';
@@ -12,17 +12,18 @@ import { TagControlsComponent } from '../../sim/tag-controls/tag-controls.compon
 import { FieldCanvasComponent } from '../../sim/field-canvas/field-canvas.component';
 import { RoomSelectComponent } from '../../sim/room-select/room-select.component';
 
-import { runInInjectionContext } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
-import { Observable, of } from 'rxjs';
+import { Observable } from 'rxjs';
 import { distinctUntilChanged, map, switchMap, filter } from 'rxjs/operators';
 
-import { Database, ref, set, update } from '@angular/fire/database';
-import { MatchService } from '../../services/match.service';
-import { MonitorService } from '../../services/monitor.service';
+import { Database, ref, update } from '@angular/fire/database';
+import { Auth } from '@angular/fire/auth';
+
 import { PositionsService } from '../../services/positions.service';
-import { doc, Firestore, serverTimestamp, writeBatch } from '@angular/fire/firestore';
 import { BotService } from '../../services/bot.service';
+import { RtdbPositionsService } from '../../services/rtdb-positions.service';
+import { MonitorActionsService } from '../../services/monitor-actions.service';
+import { PlayersControlsComponent } from '../players-controls/players-controls.component';
 
 export type BotLocal = { id: string; x: number; y: number; h: number | null };
 export type DotDTO = { x: number; y: number; uid?: string };
@@ -36,7 +37,7 @@ export type DotDTO = { x: number; y: number; uid?: string };
     MatCardModule, MatSnackBarModule, MatDividerModule,
     RoomInputComponent, CreateRoomComponent,
     BotsControlsComponent, TagControlsComponent, FieldCanvasComponent,
-    RoomSelectComponent,
+    RoomSelectComponent, PlayersControlsComponent
   ],
   templateUrl: './match-simulator.component.html',
   styleUrls: ['./match-simulator.component.css'],
@@ -45,19 +46,18 @@ export class MatchSimulatorComponent {
   private injector = inject(Injector);
   private db = inject(Database);
   private positions = inject(PositionsService);
-  private monitor = inject(MonitorService);
   private route = inject(ActivatedRoute);
-  private match = inject(MatchService);
   private botService = inject(BotService);
 
-  private readonly fs = inject(Firestore);
-  
-// utils
+  // nouveaux services
+  private rtdbPos = inject(RtdbPositionsService);
+  private actions = inject(MonitorActionsService);
+  private auth = inject(Auth);
+
+  // utils
   displayMs = (v: number | null): string => `${v ?? 0} ms`;
 
-
   newRoomName = signal<string>('');
-
   roomId = signal<string>('');
   nbBots = signal<number>(6);
   speed = signal<number>(300);
@@ -75,16 +75,17 @@ export class MatchSimulatorComponent {
     map(id => (id ?? '').trim()),
     distinctUntilChanged(),
     filter(id => !!id.length),
-    switchMap(id => runInInjectionContext(this.injector, () =>
-      this.monitor.liveMap$(id) as Observable<DotDTO[]>
-    )),
+    switchMap(id => this.rtdbPos.liveMap$(id) as Observable<DotDTO[]>),
   );
 
   async createRoomAndUseIt(): Promise<void> {
     const name = this.newRoomName().trim();
     if (!name) { this.botService.toast('Donne un nom de room'); return; }
+    const ownerUid = this.auth.currentUser?.uid;
+    if (!ownerUid) { this.botService.toast('Connecte-toi pour créer une room'); return; }
+
     try {
-      const { roomId, name: finalName } = await this.match.createRoom(name);
+      const { roomId, name: finalName } = await this.actions.createRoomWithOwner(name, ownerUid);
       this.roomId.set(roomId);
       this.listen();
       this.botService.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
@@ -103,14 +104,14 @@ export class MatchSimulatorComponent {
     this.positions.stop();
   }
 
-// Optionnel : normalise en valeurs attendues par les règles
-normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
-  const r = (role ?? '').toLowerCase().trim();
-  if (r === 'hunter' || r === 'chasseur') return (r as any);
-  if (r === 'prey' || r === 'proie') return (r as any);
-  // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
-  return 'prey';
-}
+  // Optionnel : normalise en valeurs attendues par les règles
+  normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
+    const r = (role ?? '').toLowerCase().trim();
+    if (r === 'hunter' || r === 'chasseur') return (r as any);
+    if (r === 'prey' || r === 'proie') return (r as any);
+    // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
+    return 'prey';
+  }
 
   /**
    * Spawn N bots et leur **assigne un rôle** :
@@ -119,7 +120,7 @@ normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
    * Compatible avec tes règles (owner requis pour MAJ room.roles).
    */
   async spawnBots(role: string = 'prey'): Promise<void> {
-    await this.botService.spawnBots(this.roomId(), role,this.nbBots(),this.bots );
+    await this.botService.spawnBots(this.roomId(), role, this.nbBots(), this.bots);
   }
 
   start(): void {
@@ -169,14 +170,15 @@ normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
     const target = victim ? dots.find(d => d.uid === victim) : undefined;
     if (!target || !target.uid) return this.botService.toast('Cible invalide');
 
+    // Acteur = utilisateur courant (comme avant avec MatchService)
+    const actorUid = this.auth.currentUser?.uid;
+    if (!actorUid) { this.botService.toast('Connecte-toi pour émettre un TAG'); return; }
+
     try {
-      await this.match.emitTag(id, target.x, target.y, target.uid);
+      await this.actions.emitTag(id, actorUid, target.uid, target.x, target.y);
       this.botService.toast(`TAG → ${target.uid.slice(0, 6)}…`);
     } catch (e: any) {
-      if (e?.retryInMs) this.botService.toast(`${e.message} (dans ${Math.ceil(e.retryInMs / 1000)}s)`);
-      else this.botService.toast(`TAG refusé : ${e?.message ?? e}`);
+      this.botService.toast(`TAG refusé : ${e?.message ?? e}`);
     }
   }
-
-  
 }

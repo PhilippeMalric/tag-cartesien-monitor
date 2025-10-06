@@ -1,7 +1,71 @@
-<h2>Derniers événements</h2>
-@let events = (events$ | async) ?? [];
-  
-@if (events.length === 0) {
-  <p class="muted">Aucun événement pour le moment.</p>
-} 
+<mat-card appearance="outlined" class="events-card">
+  <mat-card-header>
+    <mat-card-title>
+      @if ((roomId() ?? '').trim().length > 0) {
+        Événements de la room <span class="mono">#{{ roomId() }}</span>
+      } @else {
+        Événements récents (global)
+      }
+    </mat-card-title>
+    <mat-card-subtitle>
+      Journal des actions — plus récent en premier
+    </mat-card-subtitle>
+  </mat-card-header>
 
+  <mat-card-content>
+
+    <div class="toolbar">
+      <mat-form-field appearance="outline" class="limit-field" floatLabel="always">
+        <mat-label>Limite</mat-label>
+        <mat-select [value]="limit()" (selectionChange)="limit.set($any($event.value))">
+          @for (n of limitOptions; track n) {
+            <mat-option [value]="n">{{ n }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+    </div>
+
+    @if (events$ | async; as events) {
+      @if (events.length === 0) {
+        <div class="empty">Aucun événement pour l’instant.</div>
+      } @else {
+        <mat-nav-list>
+          @for (ev of events; track trackById) {
+            <a mat-list-item>
+              <mat-icon matListItemIcon aria-hidden="true">
+                {{ ev.type === 'tag' ? 'flag' : 'event' }}
+              </mat-icon>
+
+              <div matListItemTitle class="row">
+                <mat-chip-set class="chips">
+                  <mat-chip appearance="outlined" class="chip-type">
+                    {{ labelFor(ev) }}
+                  </mat-chip>
+                  <mat-chip appearance="outlined" *ngIf="ev.hunterUid">
+                    H: {{ short(ev.hunterUid) }}
+                  </mat-chip>
+                  <mat-chip appearance="outlined" *ngIf="ev.victimUid">
+                    V: {{ short(ev.victimUid) }}
+                  </mat-chip>
+                  <mat-chip appearance="outlined" *ngIf="ev.x !== undefined && ev.y !== undefined">
+                    ({{ ev.x }}, {{ ev.y }})
+                  </mat-chip>
+                </mat-chip-set>
+              </div>
+
+              <div matListItemLine class="meta">
+                <span class="date" [title]="(dateMs(ev) | date:'medium')">
+                  {{ dateMs(ev) | date:'short' }}
+                </span>
+                <span class="id" *ngIf="ev.id">— id: <span class="mono">{{ ev.id }}</span></span>
+              </div>
+            </a>
+          }
+        </mat-nav-list>
+      }
+    } @else {
+      <div class="empty">Chargement…</div>
+    }
+
+  </mat-card-content>
+</mat-card>

@@ -5,10 +5,8 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { PosDTO, PositionsService } from '../../../services/positions.service';
 import { PlayRenderer } from '../play.renderer';
-import { MonitorService } from '../../../services/monitor.service';
 
 // Adapte ces chemins selon ton repo
-
 
 @Component({
   standalone: true,
@@ -20,9 +18,9 @@ import { MonitorService } from '../../../services/monitor.service';
 export class RoomLiveMapComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private ngZone = inject(NgZone);
-  private positions: PositionsService = inject(PositionsService);
-  private monitor = inject(MonitorService);
-private hunterUids: string[] = [];
+  private positions = inject(PositionsService);
+
+  private hunterUids: string[] = [];
 
   @ViewChild('cv', { static: true }) cv!: ElementRef<HTMLCanvasElement>;
 
@@ -35,7 +33,6 @@ private hunterUids: string[] = [];
   private latest: Record<string, PosDTO> = {};
   private rendererWantsCanvas?: boolean; // cache le mode après 1er essai
 
-
   ngOnInit() {
     this.roomId = this.route.snapshot.paramMap.get('id')!;
     this.positions.startListening(this.roomId);
@@ -46,19 +43,18 @@ private hunterUids: string[] = [];
     this.ctx = ctx;
 
     this.positions.positions$.subscribe((map: Record<string, PosDTO> | null) => {
-  this.latest = map ?? {};
+      this.latest = map ?? {};
 
-  // dérive la liste des chasseurs d'après role
-  const hunters: string[] = [];
-  for (const [id, p] of Object.entries(this.latest)) {
-    const role = String(p?.role ?? '').toLowerCase();
-    if (role === 'chasseur' || role === 'hunter') hunters.push(id);
-  }
-  this.hunterUids = Array.from(new Set(hunters));
-  
+      // dérive la liste des chasseurs d'après role
+      const hunters: string[] = [];
+      for (const [id, p] of Object.entries(this.latest)) {
+        const role = String(p?.role ?? '').toLowerCase();
+        if (role === 'chasseur' || role === 'hunter') hunters.push(id);
+      }
+      this.hunterUids = Array.from(new Set(hunters));
 
-  if (!this.raf) this.raf = requestAnimationFrame(() => this.draw());
-});
+      if (!this.raf) this.raf = requestAnimationFrame(() => this.draw());
+    });
 
     this.ngZone.runOutsideAngular(() => this.loop());
   }
@@ -94,8 +90,8 @@ private hunterUids: string[] = [];
     const now = performance.now();
     const bounds = { minX: -50, maxX: 50, minY: -50, maxY: 50 };
 
-    const players: Array<{ id: string; x: number; y: number; name?: string }> = [];
-    const bots   : Array<{ id: string; x: number; y: number; name?: string }> = [];
+    const players: Array<{ id: string; x: number; y: number; name?: string; role?: any }> = [];
+    const bots   : Array<{ id: string; x: number; y: number; name?: string; role?: any }> = [];
 
     for (const [id, p] of Object.entries(this.latest)) {
       if (!p) continue;
@@ -103,7 +99,7 @@ private hunterUids: string[] = [];
         id,
         x: Number(p.x) || 0,
         y: Number(p.y) || 0,
-        name: p.name,
+        name: (p as any).name,
         role: p.role, // ⬅️ on passe le rôle au renderer
       };
       (id.startsWith('bot-') ? bots : players).push(item);
@@ -117,24 +113,16 @@ private hunterUids: string[] = [];
       bots,
       showSelf: false,
       hunterUids: this.hunterUids, // ⬅️ multi chasseurs depuis roles live
-      tagRadius: 10, 
+      tagRadius: 10,
     };
 
-
-
-    // 
     try {
-     
-        // On sait déjà qu'il veut un ctx
-        console.log('PlayRenderer: using ctx');
-        this.renderer.draw(this.ctx, state)
-        
-        
-      } 
-   catch {
-     console.log('PlayRenderer: fallback to quick draw');
-     
+      // On sait déjà qu'il veut un ctx
+      this.renderer.draw(this.ctx, state);
+    } catch {
+      // fallback minimal si jamais draw() lance une erreur
+      // (laisser vide ou logger silencieusement)
+      // console.warn('PlayRenderer: fallback');
     }
   }
-
 }

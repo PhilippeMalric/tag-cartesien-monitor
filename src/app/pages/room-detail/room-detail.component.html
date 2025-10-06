@@ -1,19 +1,31 @@
-@if (room$ | async; as room) {
+@if (vm$ | async; as vm) {
 
-  <h2>Room {{ room.id }}</h2>
-  <p>Statut: {{ room.state }} — Mode: {{ room.mode }}</p>
+  <h2>Room {{ vm.room?.id }}</h2>
+  <p>Statut: {{ vm.room?.state || '—' }} — Mode: {{ vm.room?.mode || '—' }}</p>
   <button (click)="confirmDelete()" class="danger">🗑️ Supprimer cette room</button>
 
   <h3>Carte temps réel</h3>
-  <!-- ✅ IMPORTANT: on passe l'id de la room à la carte -->
+  <!-- La carte lit l'id via la route; si tu veux, tu peux aussi lui passer [roomId]="vm.room?.id" si le composant le supporte -->
   <app-room-live-map></app-room-live-map>
 
+  <!-- ====== PLAYERS (via players$ dans le VM) ====== -->
+  <h3>Joueurs ({{ vm.players?.length || 0 }})</h3>
+  @if (vm.players?.length) {
+    <ul>
+      @for (p of vm.players; track p.uid) {
+        <li>
+          <strong>{{ p.displayName || p.uid }}</strong>
+          — rôle: <b>{{ p.role || '—' }}</b>
+          <span *ngIf="p.score !== undefined"> — score: {{ p.score }}</span>
+        </li>
+      }
+    </ul>
+  } @else {
+    <em>Aucun joueur</em>
+  }
 
- 
-
-  <pre class="muted" style="white-space:pre-wrap">
-  @if (room?.players) { {{ room.players | json }} } @else { no room.players }
-</pre>
+  <!-- Debug facultatif -->
+  <pre class="muted" style="white-space:pre-wrap">{{ vm.players | json }}</pre>
 
   <!-- ====== BOTS (monitor -> RTDB) ====== -->
   <h3>Bots (monitor → RTDB)</h3>
@@ -66,7 +78,7 @@
     <button (click)="tryWriteTest()">✍ Test écriture bots</button>
     <ul>
       <li><b>auth.uid</b> = {{ diag.uid || '—' }}</li>
-      <li><b>roomsMeta/{{ room.id }}/ownerUid</b> = {{ diag.ownerUid || '—' }}</li>
+      <li><b>roomsMeta/{{ vm.room?.id }}/ownerUid</b> = {{ diag.ownerUid || '—' }}</li>
       <li><b>write bots</b> = {{ diag.canWriteBots }}</li>
     </ul>
   </div>
