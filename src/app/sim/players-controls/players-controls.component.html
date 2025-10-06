@@ -60,7 +60,7 @@
         <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
       </mat-button-toggle-group>
     </div>
-
+  
     <!-- Liste améliorée -->
     <mat-nav-list class="list list--compact">
       @for (p of filteredPlayersSig(); track $index) {
@@ -180,4 +180,10 @@
       </button>
     </mat-menu>
   </mat-card-content>
+    <button mat-stroked-button color="primary"
+            (click)="randomizeAllSpawns()"
+            [disabled]="!roomId()">
+    <mat-icon>shuffle</mat-icon>
+    Spawns aléatoires
+    </button>
 </mat-card>

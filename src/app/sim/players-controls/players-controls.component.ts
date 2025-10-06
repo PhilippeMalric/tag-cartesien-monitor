@@ -32,6 +32,8 @@ import { of } from 'rxjs';
 
 type RoleSimple = 'hunter' | 'prey';
 type SortKey = 'none' | 'role' | 'name';
+type BotLocal = { id: string; x:number; y:number; h:number|null };
+type World = { minX:number; maxX:number; minY:number; maxY:number };
 
 @Component({
   selector: 'app-players-controls',
@@ -50,6 +52,11 @@ type SortKey = 'none' | 'role' | 'name';
   styleUrls: ['./players-controls.component.scss'],
 })
 export class PlayersControlsComponent {
+
+    worldSig = signal<World>({ minX:-45, maxX:45, minY:-30, maxY:30 });
+
+
+    
   /** Room ciblée */
   roomId = input<string>('');
   snack = inject(MatSnackBar);
@@ -96,6 +103,16 @@ export class PlayersControlsComponent {
     ),
     { initialValue: '' }
   );
+
+    botsSig = computed<BotLocal[]>(() => {
+        const arr = this.playersSig();
+        return arr.map(p => ({
+            id: p.uid!,
+            x: (p.spawn?.x ?? 0),
+            y: (p.spawn?.y ?? 0),
+            h: null,
+        }));
+    });
 
   /** Liste filtrée + triée (utilisée par le template) */
   readonly filteredPlayersSig = computed(() => {
@@ -164,6 +181,18 @@ export class PlayersControlsComponent {
       this.busyRoleUid.set(null);
     }
   }
+
+    async randomizeAllSpawns(): Promise<void> {
+        const roomId = (this.roomId() || '').trim();
+        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+        try {
+            await this.act.randomizeSpawns(roomId, this.worldSig(), { minGap: 4 }); // ajuste minGap si besoin
+            this.snack.open('Spawns attribués', 'OK', { duration: 1800 });
+        } catch (e:any) {
+            console.error(e);
+            this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
+        }
+    }
 
   async remove(uid?: string): Promise<void> {
     const roomId = (this.roomId() || '').trim();

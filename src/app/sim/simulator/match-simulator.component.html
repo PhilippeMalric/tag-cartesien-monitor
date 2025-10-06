@@ -44,6 +44,28 @@
       </app-room-input>
       
  <mat-divider class="m12"></mat-divider>
+
+    <div class="match-state">
+        <mat-chip-set>
+          <mat-chip [color]="statusSig().color" selected>
+            <mat-icon inline>
+              {{ statusSig().state === 'running' ? 'play_circle' : (statusSig().state === 'idle' ? 'schedule' : 'flag') }}
+            </mat-icon>
+            {{ statusSig().label }}
+          </mat-chip>
+          @if (statusSig().state === 'running' && statusSig().leftMs != null) {
+            <mat-chip>⏱ {{ fmtTime(statusSig().leftMs) }}</mat-chip>
+          }
+        </mat-chip-set>
+
+        @if (statusSig().state === 'running' && statusSig().progress01 != null) {
+          <mat-progress-bar
+            mode="determinate"
+            [value]="(statusSig().progress01 ?? 0) * 100">
+          </mat-progress-bar>
+        }
+      </div>
+
   <app-players-controls [roomId]="roomId()"></app-players-controls>
 
       <!-- 2) Bots -->
@@ -68,11 +90,19 @@
         </app-tag-controls>
       }
 
+   
+
+
       <!-- 4) Canvas -->
       <app-field-canvas
-        [world]="{ minX:-45,maxX:45,minY:-30,maxY:30 }"
-        [bots]="bots()">
-      </app-field-canvas>
+      [world]="{ minX:-45, maxX:45, minY:-30, maxY:30 }"
+      [bots]="bots()"
+      [phase]="phaseSig()">
+    </app-field-canvas>
+
+    <app-numeric-positions [roomId]="roomId()"></app-numeric-positions>
+
+
     }
 
   </mat-card-content>

@@ -36,6 +36,7 @@ export interface PlayerDoc {
   role?: Role;
   ready?: boolean;
   score?: number;
+  spawn?: { x: number; y: number };
 }
 
 export interface PosDTO {

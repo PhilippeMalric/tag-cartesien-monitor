@@ -10,6 +10,9 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { Functions } from '@angular/fire/functions';
 
+export type World = { minX:number; maxX:number; minY:number; maxY:number };
+
+
 @Injectable({ providedIn: 'root' })
 export class MonitorActionsService {
   private fs = inject(Firestore);
@@ -188,5 +191,64 @@ export class MonitorActionsService {
     const call = httpsCallable<{roomId:string; newOwnerUid:string}, any>(this.fns, 'setRoomOwner');
     await call({ roomId, newOwnerUid });
   }
-  
+
+    async randomizeSpawns(
+        roomId: string,
+        world: World,
+        opts: { minGap?: number; seed?: number } = {}
+        ): Promise<void> {
+        if (!roomId) throw new Error('missing-roomId');
+
+        const { minX, maxX, minY, maxY } = world;
+        const minGap = Math.max(0, opts.minGap ?? 4); // distance mini entre joueurs (m)
+        const seed   = opts.seed ?? Math.floor(Math.random()*1e9);
+
+        // PRNG déterministe optionnel (mulberry32)
+        function mulberry32(a:number){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+        const rnd = mulberry32(seed);
+
+        // helpers
+        const randIn = (lo:number, hi:number) => lo + (hi-lo)*rnd();
+        const dist2 = (ax:number, ay:number, bx:number, by:number) => {
+            const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy;
+        };
+
+        // 1) lire les joueurs
+        const { collection, getDocs, doc, writeBatch, serverTimestamp } = await import('@angular/fire/firestore');
+        const col = collection(this.fs, `rooms/${roomId}/players`);
+        const snap = await getDocs(col);
+        if (snap.empty) return;
+
+        // 2) placer des points aléatoires en respectant minGap (rejection sampling simple)
+        const placed: Array<{uid:string,x:number,y:number}> = [];
+        const gap2 = minGap * minGap;
+
+        for (const d of snap.docs) {
+            const uid = d.id;
+            let x=0, y=0, tries=0;
+            const MAX_TRIES = 2_000;
+            do {
+            x = randIn(minX, maxX);
+            y = randIn(minY, maxY);
+            tries++;
+            if (placed.every(p => dist2(p.x,p.y,x,y) >= gap2)) break;
+            } while (tries < MAX_TRIES);
+
+            placed.push({ uid, x, y });
+        }
+
+        // 3) batch update: spawn + (optionnel) x/y pour la carte live
+        const batch = writeBatch(this.fs);
+        for (const p of placed) {
+            const pref = doc(this.fs, `rooms/${roomId}/players/${p.uid}`);
+            batch.update(pref, {
+            spawn: { x: p.x, y: p.y },
+            // facultatif : si ta carte lit p.x/p.y pour l’affichage live
+            x: p.x, y: p.y,
+            updatedAt: serverTimestamp(),
+            } as any);
+        }
+        await batch.commit();
+    }
+
 }

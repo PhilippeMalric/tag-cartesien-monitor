@@ -1,0 +1,66 @@
+.np-card {
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .header-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
+/* Grille fluide mobile-first */
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 520px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 840px) {
+  .grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.row-card {
+  .avatar {
+    background: rgba(33, 150, 243, 0.12);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    width: 40px; height: 40px;
+    mat-icon { font-size: 22px; }
+    &.bot { background: rgba(255, 193, 7, 0.18); }
+  }
+  .uid { font-size: 14px; line-height: 1.2; }
+  .name { font-size: 12px; opacity: .75; }
+  .role-chip { margin-left: auto; }
+
+  mat-card-content {
+    display: grid;
+    gap: 6px;
+    padding-top: 8px;
+  }
+
+  .kv {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    column-gap: 8px;
+    align-items: baseline;
+
+    .k { opacity: .7; font-size: 12px; }
+    .v { font-weight: 600; font-size: 13px; }
+  }
+}
+
+/* État vide */
+.empty {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 14px 0;
+  opacity: .7;
+  mat-icon { font-size: 22px; }
+}

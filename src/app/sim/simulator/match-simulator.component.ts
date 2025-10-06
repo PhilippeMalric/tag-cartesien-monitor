@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, Injector, signal, effect } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, Injector, signal, effect, computed } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { AsyncPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
@@ -13,8 +13,8 @@ import { FieldCanvasComponent } from '../../sim/field-canvas/field-canvas.compon
 import { RoomSelectComponent } from '../../sim/room-select/room-select.component';
 
 import { toObservable } from '@angular/core/rxjs-interop';
-import { Observable } from 'rxjs';
-import { distinctUntilChanged, map, switchMap, filter } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
+import { distinctUntilChanged, map, switchMap, filter, startWith, catchError } from 'rxjs/operators';
 
 import { Database, ref, update } from '@angular/fire/database';
 import { Auth } from '@angular/fire/auth';
@@ -24,6 +24,14 @@ import { BotService } from '../../services/bot.service';
 import { RtdbPositionsService } from '../../services/rtdb-positions.service';
 import { MonitorActionsService } from '../../services/monitor-actions.service';
 import { PlayersControlsComponent } from '../players-controls/players-controls.component';
+
+// ⬇️ NEW: Firestore (lecture/écriture de l’état de manche)
+import { Firestore, doc, docData, setDoc, serverTimestamp } from '@angular/fire/firestore';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatIcon } from '@angular/material/icon';
+
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { NumericPositionsComponent } from '../numeric-positions/numeric-positions.component';
 
 export type BotLocal = { id: string; x: number; y: number; h: number | null };
 export type DotDTO = { x: number; y: number; uid?: string };
@@ -37,7 +45,8 @@ export type DotDTO = { x: number; y: number; uid?: string };
     MatCardModule, MatSnackBarModule, MatDividerModule,
     RoomInputComponent, CreateRoomComponent,
     BotsControlsComponent, TagControlsComponent, FieldCanvasComponent,
-    RoomSelectComponent, PlayersControlsComponent
+    RoomSelectComponent, PlayersControlsComponent, MatChipsModule,
+    MatIcon,MatProgressBarModule,NumericPositionsComponent
   ],
   templateUrl: './match-simulator.component.html',
   styleUrls: ['./match-simulator.component.css'],
@@ -49,10 +58,12 @@ export class MatchSimulatorComponent {
   private route = inject(ActivatedRoute);
   private botService = inject(BotService);
 
-  // nouveaux services
+  // services
   private rtdbPos = inject(RtdbPositionsService);
   private actions = inject(MonitorActionsService);
   private auth = inject(Auth);
+  // ⬇️ NEW
+  private fs = inject(Firestore);
 
   // utils
   displayMs = (v: number | null): string => `${v ?? 0} ms`;
@@ -64,10 +75,70 @@ export class MatchSimulatorComponent {
   victimUid = signal<string | null>(null);
   bots = signal<BotLocal[]>([]);
 
+  // état local → phase canvas
+  gameStarted = signal<boolean>(false);
+  phaseSig = computed<'pre' | 'running'>(() => this.gameStarted() ? 'running' : 'pre');
+
+  // ⬇️ NEW: room live + statut de manche
+  roomDocSig = signal<any | null>(null);
+
+  // formateur mm:ss
+  fmtTime(ms?: number | null) {
+    if (!ms || ms < 0) ms = 0;
+    const s = Math.floor(ms / 1000);
+    const mm = Math.floor(s / 60).toString().padStart(2,'0');
+    const ss = (s % 60).toString().padStart(2,'0');
+    return `${mm}:${ss}`;
+  }
+
+  // Statut calculé pour l’UI à partir du doc room (fallback sur gameStarted si pas de state en DB)
+  statusSig = computed(() => {
+    const room = this.roomDocSig();
+    const state = (room?.state ?? (this.gameStarted() ? 'running' : 'idle')) as 'idle'|'running'|'ended'|'done';
+
+    // timeLimit (sec) + startedAt (ms) si disponibles
+    const timeLimitSec: number | null = room?.timeLimit ?? null;
+    const startedAtMs: number | null = room?.startedAt ?? null;
+
+    let elapsedMs: number | null = null;
+    let leftMs: number | null = null;
+    let progress01: number | null = null;
+
+    if (state === 'running' && timeLimitSec && startedAtMs) {
+      const now = Date.now();
+      elapsedMs = Math.max(0, now - startedAtMs);
+      const totalMs = timeLimitSec * 1000;
+      leftMs = Math.max(0, totalMs - elapsedMs);
+      progress01 = Math.min(1, Math.max(0, elapsedMs / totalMs));
+    }
+
+    const label =
+      state === 'running' ? 'En cours'
+      : state === 'ended' || state === 'done' ? 'Terminée'
+      : 'Préparation';
+
+    const color: 'primary'|'accent'|'warn' =
+      state === 'running' ? 'primary' : (state === 'idle' ? 'accent' : 'warn');
+
+    return { state, label, color, elapsedMs, leftMs, progress01 };
+  });
+
   constructor() {
+    // RoomId depuis la route
     effect(() => {
       const id = this.route.snapshot.paramMap.get('id');
       if (id) this.roomId.set(id);
+    });
+
+    // ⬇️ NEW: subscribe au doc room quand roomId change
+    effect(() => {
+      const id = (this.roomId() || '').trim();
+      if (!id) { this.roomDocSig.set(null); return; }
+
+      const sub = docData(doc(this.fs, 'rooms', id))
+        .pipe(startWith(null), catchError(() => of(null)))
+        .subscribe(d => this.roomDocSig.set(d));
+      return () => sub.unsubscribe();
     });
   }
 
@@ -88,6 +159,8 @@ export class MatchSimulatorComponent {
       const { roomId, name: finalName } = await this.actions.createRoomWithOwner(name, ownerUid);
       this.roomId.set(roomId);
       this.listen();
+      this.gameStarted.set(false);
+      await this.setRoomState('idle'); // NEW: on écrit l’état
       this.botService.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
     } catch (e: any) {
       this.botService.toast(`Création échouée : ${e?.message ?? e}`);
@@ -104,23 +177,17 @@ export class MatchSimulatorComponent {
     this.positions.stop();
   }
 
-  // Optionnel : normalise en valeurs attendues par les règles
   normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
     const r = (role ?? '').toLowerCase().trim();
     if (r === 'hunter' || r === 'chasseur') return (r as any);
     if (r === 'prey' || r === 'proie') return (r as any);
-    // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
     return 'prey';
   }
 
-  /**
-   * Spawn N bots et leur **assigne un rôle** :
-   * - RTDB: /bots/{roomId}/{botId} (x,y,t,name,role,type)
-   * - Firestore: /rooms/{roomId}/players/{botId} + rooms/{roomId}.roles[botId]
-   * Compatible avec tes règles (owner requis pour MAJ room.roles).
-   */
   async spawnBots(role: string = 'prey'): Promise<void> {
     await this.botService.spawnBots(this.roomId(), role, this.nbBots(), this.bots);
+    this.gameStarted.set(false);
+    await this.setRoomState('idle'); // NEW
   }
 
   start(): void {
@@ -146,6 +213,8 @@ export class MatchSimulatorComponent {
     }
 
     this.bots.set([...bots]);
+    this.gameStarted.set(true);
+    this.setRoomState('running'); // NEW
     this.botService.toast('Mouvements démarrés');
   }
 
@@ -158,6 +227,8 @@ export class MatchSimulatorComponent {
       }
     });
     this.bots.set([...bots]);
+    this.gameStarted.set(false);
+    this.setRoomState('idle'); // NEW
     this.botService.toast('Mouvements stoppés');
   }
 
@@ -170,7 +241,6 @@ export class MatchSimulatorComponent {
     const target = victim ? dots.find(d => d.uid === victim) : undefined;
     if (!target || !target.uid) return this.botService.toast('Cible invalide');
 
-    // Acteur = utilisateur courant (comme avant avec MatchService)
     const actorUid = this.auth.currentUser?.uid;
     if (!actorUid) { this.botService.toast('Connecte-toi pour émettre un TAG'); return; }
 
@@ -180,5 +250,17 @@ export class MatchSimulatorComponent {
     } catch (e: any) {
       this.botService.toast(`TAG refusé : ${e?.message ?? e}`);
     }
+  }
+
+  // ⬇️ NEW: écrit l’état de la manche dans rooms/{roomId}
+  private async setRoomState(state: 'idle'|'running'|'ended') {
+    const id = (this.roomId() || '').trim();
+    if (!id) return;
+    const roomRef = doc(this.fs, 'rooms', id);
+    await setDoc(roomRef, {
+      state,
+      ...(state === 'running' ? { startedAt: Date.now() } : {}),
+      updatedAt: serverTimestamp(),
+    } as any, { merge: true });
   }
 }
