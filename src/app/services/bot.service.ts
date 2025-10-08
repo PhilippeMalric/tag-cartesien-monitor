@@ -8,8 +8,8 @@ import {
   writeBatch, serverTimestamp, setDoc
 } from '@angular/fire/firestore';
 import { Observable } from 'rxjs';
-import { BotLocal } from '../sim/simulator/match-simulator.component';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { BotLocal } from '../sim/match-sim.types';
 
 export type Bot = {
   id: string;
@@ -247,16 +247,20 @@ export class BotService {
     for (const k of botKeys) updates[k] = null;
     await update(ref(this.db, `bots/${roomId}`), updates);
 
-    // Firestore: roles.* et players/*
-    const patch: any = {};
-    for (const k of botKeys) patch[`roles.${'bot-' + k}`] = deleteField();
-
+    // Firestore
     const batch = writeBatch(this.fs);
-    batch.update(doc(this.fs, 'rooms', roomId), patch);
+    const patch: any = {};
+
     for (const k of botKeys) {
-      const uid = `bot-${k}`;
+      // k = clé RTDB sous /bots/{roomId}/{k}
+      // Certains parcours auront k = 'bot-...' (spawnBots),
+      // d'autres k = '<pushKey>' (addBot).
+      const uid = k.startsWith('bot-') ? k : `bot-${k}`;
+      patch[`roles.${uid}`] = deleteField();
       batch.delete(doc(this.fs, `rooms/${roomId}/players/${uid}`));
     }
+
+    batch.update(doc(this.fs, 'rooms', roomId), patch);
     await batch.commit();
   }
 

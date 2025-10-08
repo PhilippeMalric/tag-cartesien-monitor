@@ -75,9 +75,7 @@
         [speed]="speed()"
         (speedChange)="speed.set($event)"
         [displayMs]="displayMs"
-        (spawn)="spawnBots()"
-        (start)="start()"
-        (stop)="stop()">
+        (spawn)="spawnBots()">
       </app-bots-controls>
 
       <!-- 3) TAG -->
@@ -89,19 +87,25 @@
           (simulate)="simulateTag(dots)">
         </app-tag-controls>
       }
+<div class="actions-row" style="display:flex; gap:8px; align-items:center; margin:12px 0;">
+  <button mat-flat-button color="primary" (click)="start()">
+    <mat-icon>play_arrow</mat-icon>
+    Démarrer
+  </button>
 
-   
-
-
-      <!-- 4) Canvas -->
-      <app-field-canvas
-      [world]="{ minX:-45, maxX:45, minY:-30, maxY:30 }"
-      [bots]="bots()"
-      [phase]="phaseSig()">
-    </app-field-canvas>
+  <button mat-stroked-button color="warn" (click)="stop()">
+    <mat-icon>stop</mat-icon>
+    Terminer
+  </button>
+</div>
+         <!-- 4) Canvas -->
+    <app-field-canvas
+    [roomId]="roomId()"
+    [world]="{ minX:-45, maxX:45, minY:-30, maxY:30 }">
+  </app-field-canvas>
 
     <app-numeric-positions [roomId]="roomId()"></app-numeric-positions>
-
+<app-sim-event-feed [roomId]="roomId()"></app-sim-event-feed>
 
     }
 

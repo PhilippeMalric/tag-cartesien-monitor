@@ -1,0 +1,102 @@
+<mat-card appearance="outlined" class="ef-card">
+  <!-- HEADER -->
+  <mat-card-header>
+    <mat-card-title class="title-wrap">
+      {{ title() }}
+      <!-- compteur d'events -->
+      @if (events().length > 0) {
+        <mat-chip class="count-chip" color="primary" selected>
+          <mat-icon inline>list_alt</mat-icon>
+          {{ events().length }}
+        </mat-chip>
+      }
+    </mat-card-title>
+
+    <div class="spacer"></div>
+
+    <button mat-stroked-button (click)="refresh()" [disabled]="loading()">
+      <mat-icon>sync</mat-icon>
+      Relire
+    </button>
+  </mat-card-header>
+
+  <mat-card-content>
+
+    <!-- EMPTY STATE -->
+    @if (events().length === 0) {
+      <div class="empty">
+        <mat-icon>hourglass_empty</mat-icon>
+        <div>Aucun événement.</div>
+      </div>
+    }
+
+    <!-- LIST -->
+    @if (events().length > 0) {
+      <mat-list>
+        @for (ev of events(); track trackById) {
+          <mat-list-item class="ev-item" lines="3">
+
+            <!-- Icône type -->
+            <mat-icon
+              matListItemIcon
+              [ngClass]="ev.type || 'other'"
+              [matTooltip]="(ev.type || 'événement') | uppercase">
+              {{ iconFor(ev.type) }}
+            </mat-icon>
+
+            <!-- Ligne 1 : Type + Titre -->
+            <div matListItemTitle class="title-row">
+              <mat-chip [color]="chipColor(ev.type)" selected>
+                <mat-icon inline>label</mat-icon>
+                {{ (ev.type || 'event').toUpperCase() }}
+              </mat-chip>
+
+              <span class="title-text">
+                {{ titleFor(ev) }}
+              </span>
+
+              <span class="gap"></span>
+            </div>
+
+            <!-- Ligne 2 : Date + heure -->
+            @if (tsMs(ev); as t) {
+              <div matListItemLine class="meta-row">
+                <mat-icon inline class="meta-ic">schedule</mat-icon>
+                <span class="mono">{{ t | date:'yyyy-MM-dd' }}</span>
+                <span class="dot">·</span>
+                <span class="mono">{{ t | date:'HH:mm:ss' }}</span>
+              </div>
+            }
+
+            <!-- Ligne 3 : Coordonnées sous forme de chips -->
+            @if (hasXY(ev)) {
+              <div matListItemLine class="meta-row">
+                <mat-chip-set>
+                  <mat-chip>
+                    <mat-icon inline>my_location</mat-icon>
+                    x: <span class="mono" style="margin-left:4px">{{ ev.x }}</span>
+                  </mat-chip>
+                  <mat-chip>
+                    <mat-icon inline>my_location</mat-icon>
+                    y: <span class="mono" style="margin-left:4px">{{ ev.y }}</span>
+                  </mat-chip>
+                </mat-chip-set>
+              </div>
+            }
+
+            <mat-divider inset></mat-divider>
+          </mat-list-item>
+        }
+      </mat-list>
+
+      <!-- Actions liste -->
+      <div class="load-more">
+        <button mat-button (click)="loadMore()" [disabled]="loading()">
+          <mat-icon>expand_more</mat-icon>
+          Charger plus
+        </button>
+      </div>
+    }
+
+  </mat-card-content>
+</mat-card>

@@ -2,8 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { authState, Auth as FirebaseAuth } from '@angular/fire/auth';
 import { Firestore, doc, docData, collection, collectionData, updateDoc, query, orderBy, limit, getDoc, addDoc, serverTimestamp, writeBatch } from '@angular/fire/firestore';
 import { Observable, firstValueFrom, map, shareReplay } from 'rxjs';
-import { MyPlayerDoc,  TagEvent } from '../../../../tag-cartesien/src/app/pages/play/play.models';
+
 import { RoomDoc } from '../models/room.model';
+import { MyPlayerDoc, TagEvent } from '../pages/room-detail/play.models';
 
 @Injectable({ providedIn: 'root' })
 export class MatchService {
@@ -34,13 +35,14 @@ export class MatchService {
 
   events$ = (matchId: string): Observable<TagEvent[]> => {
     const eventsCol = collection(this.fs, `rooms/${matchId}/events`);
-    const qEvents = query(eventsCol, orderBy('ts', 'desc'), limit(20));
+    const qEvents = query(eventsCol,  limit(20));
     return collectionData(qEvents, { idField: 'id' }).pipe(
       map(list => [...(list as TagEvent[])].reverse()),
       shareReplay({ bufferSize: 1, refCount: true })
     );
   }
 
+ 
   private async getPlayer(matchId: string, uid: string) {
     const ref = doc(this.fs, `rooms/${matchId}/players/${uid}`);
     const snap = await getDoc(ref);

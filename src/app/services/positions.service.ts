@@ -40,22 +40,10 @@ export class PositionsService {
    * - t par défaut = Date.now()
    * - name/role optionnels
    */
-  async writeSelf(
-    matchId: string,
-    uid: string,
-    x: number,
-    y: number,
-    opts?: { t?: number; name?: string; role?: string }
-  ) {
+   async writeSelf(matchId: string, uid: string, x: number, y: number, role: string) {
     if (!matchId || !uid) return;
     const r = ref(this.db, `positions/${matchId}/${uid}`);
-    const payload: PosDTO = {
-      x, y,
-      t: opts?.t ?? Date.now(),
-      ...(opts?.name ? { name: opts.name } : {}),
-      ...(opts?.role ? { role: opts.role } : {}),
-    };
-    await set(r, payload);
+    await set(r, { x, y, t: Date.now(),role });
   }
 
   /** Met à jour uniquement le rôle d’un joueur (sans toucher x/y) */

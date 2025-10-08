@@ -1,66 +1,84 @@
 .np-card {
-  .mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+  /* En-tête : gauche (titres) / droite (actions), wrap sur mobile */
+  .np-header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   }
-  .header-actions {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+  .np-head-left { min-width: 200px; flex: 1 1 auto; }
+  .np-head-right {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+    .btn-text { display: inline; }
+  }
+
+  /* Sur très petit écran, n’afficher que l’icône du bouton */
+  @container (max-width: 360px) {
+    .np-head-right .btn-text { display: none; }
   }
 }
 
-/* Grille fluide mobile-first */
+/* Grille fluide : auto-fit pour remplir la ligne avec des cartes min 260px */
 .grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
-@media (min-width: 520px) {
-  .grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (min-width: 840px) {
-  .grid { grid-template-columns: repeat(3, 1fr); }
-}
-
+/* Carte d’une ligne */
 .row-card {
+  .row-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+
   .avatar {
-    background: rgba(33, 150, 243, 0.12);
+    background: color-mix(in oklab, currentColor 15%, transparent);
     border-radius: 50%;
-    display: grid;
-    place-items: center;
+    display: grid; place-items: center;
     width: 40px; height: 40px;
     mat-icon { font-size: 22px; }
-    &.bot { background: rgba(255, 193, 7, 0.18); }
+    &.bot { background: color-mix(in oklab, #ffc107 25%, transparent); }
   }
-  .uid { font-size: 14px; line-height: 1.2; }
+
+  .id-block { min-width: 0; flex: 1 1 auto; }
+  .uid {
+    font-size: clamp(12px, 2.5vw, 14px);
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .name { font-size: 12px; opacity: .75; }
+
   .role-chip { margin-left: auto; }
 
   mat-card-content {
-    display: grid;
-    gap: 6px;
-    padding-top: 8px;
+    display: grid; gap: 8px; padding-top: 8px;
   }
 
+  /* Paires clé-valeur : 1 colonne sur mobile, 2 colonnes quand il y a de la place */
   .kv {
-    display: grid;
-    grid-template-columns: 120px 1fr;
-    column-gap: 8px;
+    display: grid; row-gap: 2px; column-gap: 8px;
+    grid-template-columns: 1fr; /* mobile */
     align-items: baseline;
 
     .k { opacity: .7; font-size: 12px; }
     .v { font-weight: 600; font-size: 13px; }
+
+    @container (min-width: 360px) {
+      grid-template-columns: 120px 1fr;
+    }
   }
 }
 
 /* État vide */
 .empty {
-  display: grid;
-  place-items: center;
-  gap: 6px;
-  padding: 14px 0;
-  opacity: .7;
+  display: grid; place-items: center; gap: 6px; padding: 14px 0; opacity: .7;
   mat-icon { font-size: 22px; }
+}
+
+/* Container queries : activer sur la carte principale pour un meilleur contrôle fin */
+:host { container-type: inline-size; }
+
+/* Respecte l’accessibilité (animation réduite) */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
 }

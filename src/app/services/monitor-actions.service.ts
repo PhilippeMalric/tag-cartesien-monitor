@@ -9,6 +9,7 @@ import {
 } from '../models/monitor.models';
 import { httpsCallable } from 'firebase/functions';
 import { Functions } from '@angular/fire/functions';
+import { PositionsService } from './positions.service';
 
 export type World = { minX:number; maxX:number; minY:number; maxY:number };
 
@@ -16,7 +17,7 @@ export type World = { minX:number; maxX:number; minY:number; maxY:number };
 @Injectable({ providedIn: 'root' })
 export class MonitorActionsService {
   private fs = inject(Firestore);
-
+private position = inject(PositionsService);
   private fns = inject(Functions);
   // --- Utils ---------------------------------------------------------
   private normRole(r?: string): RoleSimple {
@@ -50,13 +51,13 @@ export class MonitorActionsService {
     const batch = writeBatch(this.fs);
 
     batch.set(doc(this.fs, `rooms/${roomRef.id}/players/${ownerUid}`), {
-      role: 'chasseur', score: 0, spawn: { x: 0, y: 0 },
-      iFrameUntilMs: 0, cantTagUntilMs: 0,
+      role: 'chasseur', score: 0, spawn: { x: 10, y: 10 },
+      iFrameUntilMs: 0, cantTagUntilMs: 0,displayName:"test1",ready:true
     });
 
     batch.set(doc(this.fs, `rooms/${roomRef.id}/players/${guestUid}`), {
-      role: 'chassé', score: 0, spawn: { x: 10, y: 0 },
-      iFrameUntilMs: 0, cantTagUntilMs: 0,
+      role: 'chassé', score: 0, spawn: { x: -10, y: -10 },
+      iFrameUntilMs: 0, cantTagUntilMs: 0,displayName:"test2",ready:true
     });
 
     batch.set(doc(this.fs, 'rooms', roomRef.id), {
@@ -65,6 +66,12 @@ export class MonitorActionsService {
     }, { merge: true });
 
     await batch.commit();
+
+    this.position.writeSelf(roomRef.id, ownerUid, 10, 10, 'chasseur')
+    this.position.writeSelf(roomRef.id, guestUid, -10, -10, 'chassé')
+
+
+
     return { roomId: roomRef.id, name: finalName, ownerUid, guestUid };
   }
 
@@ -251,4 +258,15 @@ export class MonitorActionsService {
         await batch.commit();
     }
 
+}
+
+type RoleFR = 'chasseur' | 'chassé';
+type RoleAny = RoleFR | 'hunter' | 'prey';
+
+function toFR(r: RoleAny | null | undefined): RoleFR | null {
+  if (!r) return null;
+  const s = String(r).toLowerCase();
+  if (s === 'hunter' || s === 'chasseur') return 'chasseur';
+  if (s === 'prey'   || s === 'chassé')   return 'chassé';
+  return null;
 }

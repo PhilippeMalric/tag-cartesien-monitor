@@ -1,0 +1,158 @@
+:host {
+  display: block;
+}
+
+/* ---------- Card & Header ---------- */
+.ef-card {
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden; /* évite les débords d’ombre/hover */
+}
+
+mat-card-header {
+  padding: 12px 16px 10px;
+}
+
+.spacer {
+  margin-left: auto;
+}
+
+/* ---------- États vides ---------- */
+.empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 24px 14px;
+  opacity: .75;
+  text-align: center;
+}
+
+/* ---------- Liste / Items ---------- */
+mat-list {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.ev-item {
+  padding: 8px 8px 6px 0;
+  border-radius: 12px;
+  transition: background-color .15s ease, transform .06s ease;
+  /* espace entre items */
+  margin-bottom: 6px;
+}
+
+.ev-item:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.ev-item:active {
+  transform: translateY(0.5px);
+}
+
+/* Inset divider plus espacé et cohérent */
+mat-divider[inset] {
+  margin-left: 56px; /* aligne avec l’icône de liste */
+  margin-top: 10px;
+}
+
+/* ---------- Titre & Meta ---------- */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;          /* + espace entre chip et titre */
+  min-height: 28px;
+  margin-bottom: 6px; /* espace entre titre et la ligne date/heure */
+}
+
+.title-row .gap {
+  flex: 1;
+}
+
+.title-text {
+  line-height: 1.25;
+}
+
+/* Lignes d’infos (date/heure, coordonnées) plus aérées */
+.meta-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;          /* + espace entre éléments */
+  opacity: .85;
+  font-size: 12.5px;
+  line-height: 1.35;
+  margin-top: 3px;    /* espace entre lignes successives */
+}
+
+/* Petites icônes méta compactes */
+.meta-ic {
+  font-size: 18px;
+  height: 18px;
+  width: 18px;
+  opacity: .9;
+  margin-right: 2px;
+}
+
+/* ---------- Typo & tokens ---------- */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums; /* aligne mieux les chiffres */
+}
+
+.dot {
+  opacity: .55;
+  margin: 0 2px;      /* respire un peu entre date et heure */
+}
+
+/* ---------- Icônes par type ---------- */
+mat-icon.tag { color: #ff7a00; }  /* tag = orange */
+mat-icon.other { color: #9aa0a6; } /* défaut = gris */
+
+/* ---------- Zone "Charger plus" ---------- */
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 4px; /* + espace au-dessus du bouton */
+}
+
+/* ---------- Chips ---------- */
+mat-chip {
+  border-radius: 12px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  /* espace entre chips si plusieurs (coordonnées) */
+  margin-right: 6px;
+}
+
+.count-chip {
+  margin-left: 10px; /* espace entre titre header et compteur */
+}
+
+/* ---------- Dark mode tweaks ---------- */
+@media (prefers-color-scheme: dark) {
+  .ev-item:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+  mat-icon.other { color: #b0b6bb; }
+  .dot { opacity: .7; }
+}
+
+/* ---------- Petits écrans ---------- */
+@media (max-width: 480px) {
+  mat-card-header {
+    padding: 10px 12px 8px;
+  }
+  .title-row {
+    gap: 10px;
+    min-height: 26px;
+    margin-bottom: 4px;
+  }
+  .meta-row {
+    gap: 8px;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  mat-divider[inset] {
+    margin-left: 48px;
+    margin-top: 8px;
+  }
+}

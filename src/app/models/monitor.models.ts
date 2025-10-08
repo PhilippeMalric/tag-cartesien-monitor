@@ -24,10 +24,13 @@ export interface RoomDoc {
 }
 
 export interface EventItem {
-  id?: string;
-  type?: string; // 'tag', ...
-  at?: any;      // Firestore Timestamp | Date | number
-  // payload additionnel...
+   id?: string;
+  type: 'tag';
+  hunterUid: string;
+  victimUid: string;
+  x?: number;
+  y?: number;
+  ts?: any;
 }
 
 export interface PlayerDoc {

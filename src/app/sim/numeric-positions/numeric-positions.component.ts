@@ -7,6 +7,11 @@ import { MatChipsModule } from '@angular/material/chips';
 import { Subscription } from 'rxjs';
 
 import { SpawnPositionMergeService, MergedRow } from '../../services/spawn-position-merge.service';
+import { PlayerDoc, Role } from '../../models/monitor.models';
+
+
+
+
 
 @Component({
   selector: 'app-numeric-positions',

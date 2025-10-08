@@ -19,6 +19,4 @@ export class BotsControlsComponent {
   displayMs = input<(v:number|null)=>string>((v)=>`${v??0} ms`);
 
   spawn = output<void>();
-  start = output<void>();
-  stop = output<void>();
 }

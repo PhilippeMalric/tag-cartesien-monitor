@@ -1,13 +1,16 @@
 <mat-card appearance="outlined" class="np-card">
-  <mat-card-header>
-    <mat-card-title>Positions (numérique)</mat-card-title>
-    <mat-card-subtitle>
-      Room: <span class="mono">#{{ roomId() || '—' }}</span>
-    </mat-card-subtitle>
-    <div class="header-actions">
-      <button mat-stroked-button color="primary" (click)="refresh()">
-        <mat-icon>sync</mat-icon>
-        Relire
+  <mat-card-header class="np-header">
+    <div class="np-head-left">
+      <mat-card-title>Positions (numérique)</mat-card-title>
+      <mat-card-subtitle>
+        Room : <span class="mono">#{{ roomId() || '—' }}</span>
+      </mat-card-subtitle>
+    </div>
+
+    <div class="np-head-right">
+      <button mat-stroked-button color="primary" (click)="refresh()" aria-label="Relire les positions">
+        <mat-icon aria-hidden="true">sync</mat-icon>
+        <span class="btn-text">Relire</span>
       </button>
     </div>
   </mat-card-header>
@@ -16,38 +19,41 @@
     <div class="grid">
       <ng-container *ngFor="let r of rows(); trackBy: trackByUid">
         <mat-card class="row-card" appearance="outlined">
-          <mat-card-header>
+          <mat-card-header class="row-head">
             <div mat-card-avatar class="avatar" [class.bot]="r.isBot">
               <mat-icon aria-hidden="true">{{ r.isBot ? 'smart_toy' : 'person' }}</mat-icon>
             </div>
-            <mat-card-title class="uid mono">
-              {{ r.uid }}
-            </mat-card-title>
-            <mat-card-subtitle class="name">
-              {{ r.name || '—' }}
-            </mat-card-subtitle>
+
+            <div class="id-block">
+              <mat-card-title class="uid mono" [attr.title]="r.uid">
+                {{ r.uid }}
+              </mat-card-title>
+              <mat-card-subtitle class="name">{{ r.name || '—' }}</mat-card-subtitle>
+            </div>
+
             <div class="role-chip">
-                <mat-chip-set>
-                    <mat-chip
-                    [color]="(r.role === 'hunter' || r.role === 'chasseur') ? 'primary' : (r.role === 'bot' ? 'accent' : undefined)"
-                    class="role-chip__chip"
-                    [ngClass]="{
-                        'is-hunter': (r.role === 'hunter' || r.role === 'chasseur'),
-                        'is-bot': r.role === 'bot'
-                    }">
-                    {{ r.role || '—' }}
-                    </mat-chip>
-                </mat-chip-set>
-                </div>
+              <mat-chip-set>
+                <mat-chip
+                  [color]="(r.role === 'hunter' || r.role === 'chasseur') ? 'primary' : (r.role === 'bot' ? 'accent' : undefined)"
+                  class="role-chip__chip"
+                  [ngClass]="{
+                    'is-hunter': (r.role === 'hunter' || r.role === 'chasseur'),
+                    'is-bot': r.role === 'bot'
+                  }"
+                >
+                  {{ r.role || '—' }}
+                </mat-chip>
+              </mat-chip-set>
+            </div>
           </mat-card-header>
 
           <mat-card-content>
             <div class="kv">
-              <div class="k">Spawn (x,y)</div>
+              <div class="k">Spawn (x, y)</div>
               <div class="v">{{ r.spawnX ?? '—' }} , {{ r.spawnY ?? '—' }}</div>
             </div>
             <div class="kv">
-              <div class="k">Pos (x,y)</div>
+              <div class="k">Pos (x, y)</div>
               <div class="v">{{ r.x ?? '—' }} , {{ r.y ?? '—' }}</div>
             </div>
             <div class="kv">

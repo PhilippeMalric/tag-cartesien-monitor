@@ -16437,10 +16437,13 @@ export interface RoomDoc {
 }
 
 export interface EventItem {
-  id?: string;
-  type?: string; // 'tag', ...
-  at?: any;      // Firestore Timestamp | Date | number
-  // payload additionnel...
+   id?: string;
+  type: 'tag';
+  hunterUid: string;
+  victimUid: string;
+  x?: number;
+  y?: number;
+  ts?: any;
 }
 
 export interface PlayerDoc {
@@ -16449,6 +16452,7 @@ export interface PlayerDoc {
   role?: Role;
   ready?: boolean;
   score?: number;
+  spawn?: { x: number; y: number };
 }
 
 export interface PosDTO {
@@ -18301,8 +18305,8 @@ import {
   writeBatch, serverTimestamp, setDoc
 } from '@angular/fire/firestore';
 import { Observable } from 'rxjs';
-import { BotLocal } from '../sim/simulator/match-simulator.component';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { BotLocal } from '../sim/match-sim.types';
 
 export type Bot = {
   id: string;
@@ -18540,16 +18544,20 @@ export class BotService {
     for (const k of botKeys) updates[k] = null;
     await update(ref(this.db, `bots/${roomId}`), updates);
 
-    // Firestore: roles.* et players/*
-    const patch: any = {};
-    for (const k of botKeys) patch[`roles.${'bot-' + k}`] = deleteField();
-
+    // Firestore
     const batch = writeBatch(this.fs);
-    batch.update(doc(this.fs, 'rooms', roomId), patch);
+    const patch: any = {};
+
     for (const k of botKeys) {
-      const uid = `bot-${k}`;
+      // k = clé RTDB sous /bots/{roomId}/{k}
+      // Certains parcours auront k = 'bot-...' (spawnBots),
+      // d'autres k = '<pushKey>' (addBot).
+      const uid = k.startsWith('bot-') ? k : `bot-${k}`;
+      patch[`roles.${uid}`] = deleteField();
       batch.delete(doc(this.fs, `rooms/${roomId}/players/${uid}`));
     }
+
+    batch.update(doc(this.fs, 'rooms', roomId), patch);
     await batch.commit();
   }
 
@@ -18565,8 +18573,9 @@ import { Injectable, inject } from '@angular/core';
 import { authState, Auth as FirebaseAuth } from '@angular/fire/auth';
 import { Firestore, doc, docData, collection, collectionData, updateDoc, query, orderBy, limit, getDoc, addDoc, serverTimestamp, writeBatch } from '@angular/fire/firestore';
 import { Observable, firstValueFrom, map, shareReplay } from 'rxjs';
-import { MyPlayerDoc,  TagEvent } from '../../../../tag-cartesien/src/app/pages/play/play.models';
+
 import { RoomDoc } from '../models/room.model';
+import { MyPlayerDoc, TagEvent } from '../pages/room-detail/play.models';
 
 @Injectable({ providedIn: 'root' })
 export class MatchService {
@@ -18597,13 +18606,14 @@ export class MatchService {
 
   events$ = (matchId: string): Observable<TagEvent[]> => {
     const eventsCol = collection(this.fs, `rooms/${matchId}/events`);
-    const qEvents = query(eventsCol, orderBy('ts', 'desc'), limit(20));
+    const qEvents = query(eventsCol,  limit(20));
     return collectionData(qEvents, { idField: 'id' }).pipe(
       map(list => [...(list as TagEvent[])].reverse()),
       shareReplay({ bufferSize: 1, refCount: true })
     );
   }
 
+ 
   private async getPlayer(matchId: string, uid: string) {
     const ref = doc(this.fs, `rooms/${matchId}/players/${uid}`);
     const snap = await getDoc(ref);
@@ -18783,11 +18793,15 @@ import {
 } from '../models/monitor.models';
 import { httpsCallable } from 'firebase/functions';
 import { Functions } from '@angular/fire/functions';
+import { PositionsService } from './positions.service';
+
+export type World = { minX:number; maxX:number; minY:number; maxY:number };
+
 
 @Injectable({ providedIn: 'root' })
 export class MonitorActionsService {
   private fs = inject(Firestore);
-
+private position = inject(PositionsService);
   private fns = inject(Functions);
   // --- Utils ---------------------------------------------------------
   private normRole(r?: string): RoleSimple {
@@ -18821,13 +18835,13 @@ export class MonitorActionsService {
     const batch = writeBatch(this.fs);
 
     batch.set(doc(this.fs, `rooms/${roomRef.id}/players/${ownerUid}`), {
-      role: 'chasseur', score: 0, spawn: { x: 0, y: 0 },
-      iFrameUntilMs: 0, cantTagUntilMs: 0,
+      role: 'chasseur', score: 0, spawn: { x: 10, y: 10 },
+      iFrameUntilMs: 0, cantTagUntilMs: 0,displayName:"test1",ready:true
     });
 
     batch.set(doc(this.fs, `rooms/${roomRef.id}/players/${guestUid}`), {
-      role: 'chassé', score: 0, spawn: { x: 10, y: 0 },
-      iFrameUntilMs: 0, cantTagUntilMs: 0,
+      role: 'chassé', score: 0, spawn: { x: -10, y: -10 },
+      iFrameUntilMs: 0, cantTagUntilMs: 0,displayName:"test2",ready:true
     });
 
     batch.set(doc(this.fs, 'rooms', roomRef.id), {
@@ -18836,6 +18850,12 @@ export class MonitorActionsService {
     }, { merge: true });
 
     await batch.commit();
+
+    this.position.writeSelf(roomRef.id, ownerUid, 10, 10, 'chasseur')
+    this.position.writeSelf(roomRef.id, guestUid, -10, -10, 'chassé')
+
+
+
     return { roomId: roomRef.id, name: finalName, ownerUid, guestUid };
   }
 
@@ -18962,9 +18982,78 @@ export class MonitorActionsService {
     const call = httpsCallable<{roomId:string; newOwnerUid:string}, any>(this.fns, 'setRoomOwner');
     await call({ roomId, newOwnerUid });
   }
-  
+
+    async randomizeSpawns(
+        roomId: string,
+        world: World,
+        opts: { minGap?: number; seed?: number } = {}
+        ): Promise<void> {
+        if (!roomId) throw new Error('missing-roomId');
+
+        const { minX, maxX, minY, maxY } = world;
+        const minGap = Math.max(0, opts.minGap ?? 4); // distance mini entre joueurs (m)
+        const seed   = opts.seed ?? Math.floor(Math.random()*1e9);
+
+        // PRNG déterministe optionnel (mulberry32)
+        function mulberry32(a:number){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+        const rnd = mulberry32(seed);
+
+        // helpers
+        const randIn = (lo:number, hi:number) => lo + (hi-lo)*rnd();
+        const dist2 = (ax:number, ay:number, bx:number, by:number) => {
+            const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy;
+        };
+
+        // 1) lire les joueurs
+        const { collection, getDocs, doc, writeBatch, serverTimestamp } = await import('@angular/fire/firestore');
+        const col = collection(this.fs, `rooms/${roomId}/players`);
+        const snap = await getDocs(col);
+        if (snap.empty) return;
+
+        // 2) placer des points aléatoires en respectant minGap (rejection sampling simple)
+        const placed: Array<{uid:string,x:number,y:number}> = [];
+        const gap2 = minGap * minGap;
+
+        for (const d of snap.docs) {
+            const uid = d.id;
+            let x=0, y=0, tries=0;
+            const MAX_TRIES = 2_000;
+            do {
+            x = randIn(minX, maxX);
+            y = randIn(minY, maxY);
+            tries++;
+            if (placed.every(p => dist2(p.x,p.y,x,y) >= gap2)) break;
+            } while (tries < MAX_TRIES);
+
+            placed.push({ uid, x, y });
+        }
+
+        // 3) batch update: spawn + (optionnel) x/y pour la carte live
+        const batch = writeBatch(this.fs);
+        for (const p of placed) {
+            const pref = doc(this.fs, `rooms/${roomId}/players/${p.uid}`);
+            batch.update(pref, {
+            spawn: { x: p.x, y: p.y },
+            // facultatif : si ta carte lit p.x/p.y pour l’affichage live
+            x: p.x, y: p.y,
+            updatedAt: serverTimestamp(),
+            } as any);
+        }
+        await batch.commit();
+    }
+
 }
 
+type RoleFR = 'chasseur' | 'chassé';
+type RoleAny = RoleFR | 'hunter' | 'prey';
+
+function toFR(r: RoleAny | null | undefined): RoleFR | null {
+  if (!r) return null;
+  const s = String(r).toLowerCase();
+  if (s === 'hunter' || s === 'chasseur') return 'chasseur';
+  if (s === 'prey'   || s === 'chassé')   return 'chassé';
+  return null;
+}
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\monitor-read.service.ts
@@ -18972,10 +19061,15 @@ REL:  src\app\services\monitor-read.service.ts
 ────────────────────────────────────────────────────────────
 import { Injectable, inject } from '@angular/core';
 import {
-  Firestore, CollectionReference, collection, collectionData, collectionGroup,
-  doc, docData, query, orderBy, where, limit as qLimit, deleteDoc
+  Firestore, CollectionReference,
+  collection, collectionData, collectionGroup,
+  doc, docData, query, orderBy, where,
+  limit as qLimit, deleteDoc,
+  // Ajouts pour live+pagination
+  onSnapshot, getDocs, startAfter,
+  DocumentData, QueryDocumentSnapshot
 } from '@angular/fire/firestore';
-import { combineLatest, map, shareReplay } from 'rxjs';
+import { BehaviorSubject, Observable, combineLatest, map, shareReplay } from 'rxjs';
 
 import {
   DailyStats, EventItem, EventsStream, RoomDoc, RoomStream,
@@ -18986,7 +19080,9 @@ import {
 export class MonitorReadService {
   private fs = inject(Firestore);
 
-  // --- ROOMS ---------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // ROOMS
+  // ---------------------------------------------------------------------------
   readonly rooms$: RoomsStream = (() => {
     const col = collection(this.fs, 'rooms') as CollectionReference<RoomDoc>;
     return collectionData(col, { idField: 'id' }).pipe(
@@ -19003,7 +19099,9 @@ export class MonitorReadService {
     );
   }
 
-  // --- PLAYERS -------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // PLAYERS
+  // ---------------------------------------------------------------------------
   players$(roomId: string): PlayersStream {
     const col = collection(this.fs, 'rooms', roomId, 'players') as CollectionReference<PlayerDoc>;
     return collectionData(col, { idField: 'uid' }).pipe(
@@ -19012,34 +19110,170 @@ export class MonitorReadService {
     );
   }
 
-  // --- EVENTS --------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // EVENTS (flux simples – comme tu avais)
+  // ---------------------------------------------------------------------------
   events$(roomId: string, limit = 50): EventsStream {
     const col = collection(this.fs, 'rooms', roomId, 'events') as CollectionReference<EventItem>;
-    const qy = query(col, orderBy('at', 'desc'), qLimit(limit));
-    return collectionData(qy, { idField: 'id' }).pipe(
-      map(list => list ?? []),
+    // Pas d'orderBy Firestore → on trie côté client
+    return collectionData(col, { idField: 'id' }).pipe(
+      map(list => {
+        const arr = (list ?? []) as EventItem[];
+        // tri desc par (at || ts || createdAt || 0)
+        arr.sort((a, b) => toMs(b) - toMs(a));
+        return arr.slice(0, limit);
+      }),
       shareReplay({ bufferSize: 1, refCount: true })
     );
   }
 
-  // Derniers événements globaux (monitor)
-  readonly latestEvents$: EventsStream = (() => {
-    const cg = collectionGroup(this.fs, 'events');
-    const qy = query(cg, orderBy('at', 'desc'), qLimit(100));
-    return collectionData(qy, { idField: 'id' }).pipe(
-      map(list => (list ?? []) as EventItem[]),
-      shareReplay({ bufferSize: 1, refCount: true })
-    );
-  })();
 
-  // --- STATS JOURNALIÈRES -------------------------------------------
+// Derniers événements globaux (monitor)
+readonly latestEvents$: EventsStream = (() => {
+  const cg = collectionGroup(this.fs, 'events');
+  // change 'at' -> 'ts'
+  const qy = query(cg, orderBy('ts', 'desc'), qLimit(100));
+  return collectionData(qy, { idField: 'id' }).pipe(
+    map(list => (list ?? []) as EventItem[]),
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
+})();
+ eventsRaw$(roomId: string) {
+    const col = collection(this.fs, 'rooms', roomId, 'events');
+    return collectionData(col, { idField: 'id' });
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // EVENTS – Version "bonifiée" : écoute live + pagination (room & global)
+  // ---------------------------------------------------------------------------
+
+  /** Gestion des écoutes par roomId (live + pagination) */
+  private roomFeeds = new Map<string, {
+    subject: BehaviorSubject<EventItem[]>;
+    lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+    unsubscribe: (() => void) | null;
+  }>();
+
+  /** Écoute en live des N derniers events d’une room (ordre desc par 'at') */
+  listenRoomEvents(roomId: string, limit = 50): Observable<EventItem[]> {
+    // Recrée l’écoute si elle existe déjà (reset)
+    this.stopRoomEvents(roomId);
+
+    const subject = new BehaviorSubject<EventItem[]>([]);
+    let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
+
+    const col = collection(this.fs, 'rooms', roomId, 'events');
+    const qy  = query(col, orderBy('at', 'desc'), qLimit(limit));
+
+    const unsubscribe = onSnapshot(qy, (snap) => {
+      const list: EventItem[] = [];
+      snap.forEach(d => list.push({ id: d.id, ...(d.data() as any) }));
+      subject.next(list);
+      lastDoc = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    });
+
+    this.roomFeeds.set(roomId, { subject, lastDoc, unsubscribe });
+    return subject.asObservable();
+  }
+
+  /** Charge la page suivante pour une room (concatène) */
+  async loadMoreRoomEvents(roomId: string, limit = 50): Promise<void> {
+    const feed = this.roomFeeds.get(roomId);
+    if (!feed || !feed.lastDoc) return;
+
+    const col = collection(this.fs, 'rooms', roomId, 'events');
+    const qy  = query(col, orderBy('at', 'desc'), startAfter(feed.lastDoc), qLimit(limit));
+    const snap = await getDocs(qy);
+
+    const more: EventItem[] = [];
+    snap.forEach(d => more.push({ id: d.id, ...(d.data() as any) }));
+
+    if (more.length) {
+      feed.subject.next([...feed.subject.value, ...more]);
+      feed.lastDoc = snap.docs.length ? snap.docs[snap.docs.length - 1] : feed.lastDoc;
+    }
+  }
+
+  /** Stoppe l’écoute live d’une room */
+  stopRoomEvents(roomId: string): void {
+    const feed = this.roomFeeds.get(roomId);
+    if (feed) {
+      try { feed.unsubscribe?.(); } catch {}
+      this.roomFeeds.delete(roomId);
+    }
+  }
+
+  /** Stoppe toutes les écoutes room */
+  stopAllRoomEvents(): void {
+    for (const k of Array.from(this.roomFeeds.keys())) this.stopRoomEvents(k);
+  }
+
+  // ---------- GLOBAL (collectionGroup) : live + pagination ----------
+
+  private globalFeed: {
+    subject: BehaviorSubject<EventItem[]>;
+    lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+    unsubscribe: (() => void) | null;
+  } | null = null;
+
+  /** Écoute globale live (toutes rooms) – événements triés par 'at' desc */
+  listenLatestGlobalEvents(limit = 100): Observable<EventItem[]> {
+    this.stopLatestGlobalEvents(); // reset propre
+
+    const subject = new BehaviorSubject<EventItem[]>([]);
+    let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
+
+    const cg = collectionGroup(this.fs, 'events');
+    const qy = query(cg, orderBy('at', 'desc'), qLimit(limit));
+
+    const unsubscribe = onSnapshot(qy, (snap) => {
+      const list: EventItem[] = [];
+      snap.forEach(d => list.push({ id: d.id, ...(d.data() as any) }));
+      subject.next(list);
+      lastDoc = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    });
+
+    this.globalFeed = { subject, lastDoc, unsubscribe };
+    return subject.asObservable();
+  }
+
+  /** Pagination globale (collectionGroup) */
+  async loadMoreLatestGlobalEvents(limit = 100): Promise<void> {
+    if (!this.globalFeed || !this.globalFeed.lastDoc) return;
+
+    const cg  = collectionGroup(this.fs, 'events');
+    const qy  = query(cg, orderBy('at', 'desc'), startAfter(this.globalFeed.lastDoc), qLimit(limit));
+    const snap = await getDocs(qy);
+
+    const more: EventItem[] = [];
+    snap.forEach(d => more.push({ id: d.id, ...(d.data() as any) }));
+
+    if (more.length) {
+      this.globalFeed.subject.next([...this.globalFeed.subject.value, ...more]);
+      this.globalFeed.lastDoc = snap.docs.length ? snap.docs[snap.docs.length - 1] : this.globalFeed.lastDoc;
+    }
+  }
+
+  /** Stoppe l’écoute globale live */
+  stopLatestGlobalEvents(): void {
+    if (this.globalFeed) {
+      try { this.globalFeed.unsubscribe?.(); } catch {}
+      this.globalFeed = null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // STATS JOURNALIÈRES
+  // ---------------------------------------------------------------------------
   readonly dailyStats$ = (() => {
     const start = startOfTodayLocal();
     const end   = startOfTomorrowLocal();
 
     const eventsToday$ = (() => {
       const cg = collectionGroup(this.fs, 'events');
-      const qy = query(cg,
+      const qy = query(
+        cg,
         where('type', '==', 'tag'),
         where('at', '>=', start),
         where('at', '<',  end),
@@ -19082,7 +19316,9 @@ export class MonitorReadService {
     );
   })();
 
-  // --- HELPERS -------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // HELPERS
+  // ---------------------------------------------------------------------------
   deleteRoom(roomId: string): Promise<void> {
     return deleteDoc(doc(this.fs, 'rooms', roomId));
   }
@@ -19100,9 +19336,11 @@ export class MonitorReadService {
     return dict;
   }
 
-  enrichPositionsWithRoles(positions: Array<{uid?: string; x: number; y: number}>,
-                           roleDict: Record<string, string | undefined>,
-                           players: PlayerDoc[] = []) {
+  enrichPositionsWithRoles(
+    positions: Array<{uid?: string; x: number; y: number}>,
+    roleDict: Record<string, string | undefined>,
+    players: PlayerDoc[] = []
+  ) {
     if (!positions?.length) return [];
     const fallback: Record<string, string> = {};
     for (const p of players) {
@@ -19118,7 +19356,19 @@ export class MonitorReadService {
 // Helpers dates locales
 function startOfTodayLocal(): Date { const d = new Date(); d.setHours(0,0,0,0); return d; }
 function startOfTomorrowLocal(): Date { const d = new Date(); d.setDate(d.getDate()+1); d.setHours(0,0,0,0); return d; }
-
+function toMs(ev: any): number {
+  const v = ev?.at ?? ev?.ts ?? ev?.createdAt ?? null;
+  if (!v) return 0;
+  // Firestore Timestamp
+  if (v?.toMillis) return v.toMillis();
+  // Date
+  if (v instanceof Date) return v.getTime?.() ?? 0;
+  // number (ms)
+  if (typeof v === 'number') return v;
+  // string ISO
+  const t = new Date(v as any).getTime?.();
+  return Number.isFinite(t) ? (t as number) : 0;
+}
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\positions.service.ts
@@ -19166,22 +19416,10 @@ export class PositionsService {
    * - t par défaut = Date.now()
    * - name/role optionnels
    */
-  async writeSelf(
-    matchId: string,
-    uid: string,
-    x: number,
-    y: number,
-    opts?: { t?: number; name?: string; role?: string }
-  ) {
+   async writeSelf(matchId: string, uid: string, x: number, y: number, role: string) {
     if (!matchId || !uid) return;
     const r = ref(this.db, `positions/${matchId}/${uid}`);
-    const payload: PosDTO = {
-      x, y,
-      t: opts?.t ?? Date.now(),
-      ...(opts?.name ? { name: opts.name } : {}),
-      ...(opts?.role ? { role: opts.role } : {}),
-    };
-    await set(r, payload);
+    await set(r, { x, y, t: Date.now(),role });
   }
 
   /** Met à jour uniquement le rôle d’un joueur (sans toucher x/y) */
@@ -19312,6 +19550,182 @@ export class RtdbPositionsService {
 
 
 ────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\services\spawn-position-merge.service.ts
+REL:  src\app\services\spawn-position-merge.service.ts
+────────────────────────────────────────────────────────────
+// src/app/services/spawn-position-merge.service.ts
+import { Injectable, inject } from '@angular/core';
+import { BehaviorSubject, combineLatest, Subscription } from 'rxjs';
+
+// Firestore (spawns / infos player)
+import {
+  Firestore, collection, collectionData, DocumentData, CollectionReference,
+} from '@angular/fire/firestore';
+
+// RTDB (positions live)
+import { Database, ref, onValue, off } from '@angular/fire/database';
+
+export type Vec = { x:number; y:number };
+export type SpawnDTO = {
+  uid: string;
+  displayName?: string;
+  role?: string;           // 'hunter'/'prey' (ou 'chasseur'/'proie')
+  spawn?: Vec;             // Firestore: players/{uid}.spawn
+};
+export type PosDTO = { x:number; y:number; t?:number; name?:string; role?:string };
+
+export type MergedRow = {
+  uid: string;
+  name?: string;
+  role?: string;
+  spawnX?: number;
+  spawnY?: number;
+  x?: number;              // position courante (RTDB)
+  y?: number;
+  t?: number;              // timestamp RTDB si dispo
+  isBot?: boolean;
+};
+
+@Injectable({ providedIn: 'root' })
+export class SpawnPositionMergeService {
+  private fs = inject(Firestore);
+  private db = inject(Database);
+
+  private subPlayersFS?: Subscription;
+  private rtdbRefPlayers: any = null;
+  private rtdbRefBots: any = null;
+  private rtdbCbPlayers: any = null;
+  private rtdbCbBots: any = null;
+
+  private _spawns$    = new BehaviorSubject<Record<string, SpawnDTO>>({});
+  private _rtdbP$     = new BehaviorSubject<Record<string, PosDTO>>({});
+  private _rtdbBots$  = new BehaviorSubject<Record<string, PosDTO>>({});
+  private _merged$    = new BehaviorSubject<MergedRow[]>([]);
+
+  /** Flux public fusionné (table prête à afficher) */
+  readonly merged$ = this._merged$.asObservable();
+
+  /** Lance l’écoute Firestore + RTDB et publie le tableau fusionné */
+  start(matchId: string) {
+    this.stop();
+    if (!matchId) return;
+
+    // 1) Firestore: /rooms/{roomId}/players (pour spawn/role/displayName)
+    const col = collection(this.fs, `rooms/${matchId}/players`) as CollectionReference<DocumentData>;
+    this.subPlayersFS = collectionData(col, { idField: 'uid' }).subscribe((arr: any[]) => {
+      const dict: Record<string, SpawnDTO> = {};
+      for (const p of arr || []) {
+        const uid = String(p?.uid || '');
+        if (!uid) continue;
+        const spawn = p?.spawn && Number.isFinite(p.spawn.x) && Number.isFinite(p.spawn.y)
+          ? { x: Number(p.spawn.x), y: Number(p.spawn.y) } : undefined;
+        const role = (p?.role ?? undefined);
+        const displayName = (p?.displayName ?? undefined);
+        dict[uid] = { uid, spawn, role, displayName };
+      }
+      this._spawns$.next(dict);
+    });
+
+    // 2) RTDB: positions/{roomId} (joueurs)
+    this.rtdbRefPlayers = ref(this.db, `positions/${matchId}`);
+    this.rtdbCbPlayers = (snap: any) => {
+      const val = (snap.val() || {}) as Record<string, PosDTO>;
+      const norm: Record<string, PosDTO> = {};
+      for (const [uid, p] of Object.entries(val)) {
+        if (!p) continue;
+        const x = Number((p as any).x), y = Number((p as any).y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        norm[uid] = { x, y, t: typeof p.t === 'number' ? p.t : undefined, name: p.name, role: p.role };
+      }
+      this._rtdbP$.next(norm);
+    };
+    onValue(this.rtdbRefPlayers, this.rtdbCbPlayers);
+
+    // 3) RTDB: bots/{roomId} (bots)
+    this.rtdbRefBots = ref(this.db, `bots/${matchId}`);
+    this.rtdbCbBots = (snap: any) => {
+      const val = (snap.val() || {}) as Record<string, PosDTO>;
+      const norm: Record<string, PosDTO> = {};
+      for (const [id, p] of Object.entries(val || {})) {
+        if (!p) continue;
+        const x = Number((p as any).x), y = Number((p as any).y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        norm[id] = {
+          x, y,
+          t: typeof p.t === 'number' ? p.t : undefined,
+          name: p.name ?? `Bot ${id}`,
+          role: p.role ?? 'bot',
+        };
+      }
+      this._rtdbBots$.next(norm);
+    };
+    onValue(this.rtdbRefBots, this.rtdbCbBots);
+
+    // 4) Fusion continue → tableau MergedRow[]
+    combineLatest([this._spawns$, this._rtdbP$, this._rtdbBots$]).subscribe(([spawns, posPlayers, posBots]) => {
+      const rows: MergedRow[] = [];
+
+      // joueurs (clé = uid)
+      const playerUids = new Set<string>([...Object.keys(spawns), ...Object.keys(posPlayers)]);
+      for (const uid of playerUids) {
+        const s = spawns[uid];
+        const p = posPlayers[uid];
+        rows.push({
+          uid,
+          name: s?.displayName ?? p?.name,
+          role: s?.role ?? p?.role,
+          spawnX: s?.spawn?.x,
+          spawnY: s?.spawn?.y,
+          x: p?.x,
+          y: p?.y,
+          t: p?.t,
+          isBot: false,
+        });
+      }
+
+      // bots (clé = bot-<id> pour cohérence visuelle)
+      for (const [id, p] of Object.entries(posBots)) {
+        rows.push({
+          uid: id.startsWith('bot-') ? id : `bot-${id}`,
+          name: p.name ?? `Bot ${id}`,
+          role: p.role ?? 'bot',
+          spawnX: undefined,
+          spawnY: undefined,
+          x: p.x,
+          y: p.y,
+          t: p.t,
+          isBot: true,
+        });
+      }
+
+      // tri simple : bots après joueurs, puis uid
+      rows.sort((a, b) => {
+        if (!!a.isBot !== !!b.isBot) return a.isBot ? 1 : -1;
+        return a.uid.localeCompare(b.uid);
+      });
+
+      this._merged$.next(rows);
+    });
+  }
+
+  /** Stoppe tout et nettoie */
+  stop() {
+    this.subPlayersFS?.unsubscribe();
+    this.subPlayersFS = undefined;
+
+    if (this.rtdbRefPlayers && this.rtdbCbPlayers) off(this.rtdbRefPlayers, this.rtdbCbPlayers);
+    if (this.rtdbRefBots && this.rtdbCbBots) off(this.rtdbRefBots, this.rtdbCbBots);
+    this.rtdbRefPlayers = this.rtdbRefBots = this.rtdbCbPlayers = this.rtdbCbBots = null;
+
+    this._spawns$.next({});
+    this._rtdbP$.next({});
+    this._rtdbBots$.next({});
+    this._merged$.next([]);
+  }
+}
+
+
+────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\bots-controls\bots-controls.component.html
 REL:  src\app\sim\bots-controls\bots-controls.component.html
 ────────────────────────────────────────────────────────────
@@ -19339,14 +19753,7 @@ REL:  src\app\sim\bots-controls\bots-controls.component.html
     <mat-icon>smart_toy</mat-icon>
     Spawn bots
   </button>
-  <button mat-raised-button color="accent" (click)="start.emit()">
-    <mat-icon>play_arrow</mat-icon>
-    Start
-  </button>
-  <button mat-raised-button (click)="stop.emit()">
-    <mat-icon>stop</mat-icon>
-    Stop
-  </button>
+
 </div>
 
 
@@ -19375,8 +19782,6 @@ export class BotsControlsComponent {
   displayMs = input<(v:number|null)=>string>((v)=>`${v??0} ms`);
 
   spawn = output<void>();
-  start = output<void>();
-  stop = output<void>();
 }
 
 
@@ -19423,90 +19828,1262 @@ export class CreateRoomComponent {
 
 
 ────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\event-feed\event-feed.component.css
+REL:  src\app\sim\event-feed\event-feed.component.css
+────────────────────────────────────────────────────────────
+:host {
+  display: block;
+}
+
+/* ---------- Card & Header ---------- */
+.ef-card {
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden; /* évite les débords d’ombre/hover */
+}
+
+mat-card-header {
+  padding: 12px 16px 10px;
+}
+
+.spacer {
+  margin-left: auto;
+}
+
+/* ---------- États vides ---------- */
+.empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 24px 14px;
+  opacity: .75;
+  text-align: center;
+}
+
+/* ---------- Liste / Items ---------- */
+mat-list {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.ev-item {
+  padding: 8px 8px 6px 0;
+  border-radius: 12px;
+  transition: background-color .15s ease, transform .06s ease;
+  /* espace entre items */
+  margin-bottom: 6px;
+}
+
+.ev-item:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.ev-item:active {
+  transform: translateY(0.5px);
+}
+
+/* Inset divider plus espacé et cohérent */
+mat-divider[inset] {
+  margin-left: 56px; /* aligne avec l’icône de liste */
+  margin-top: 10px;
+}
+
+/* ---------- Titre & Meta ---------- */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;          /* + espace entre chip et titre */
+  min-height: 28px;
+  margin-bottom: 6px; /* espace entre titre et la ligne date/heure */
+}
+
+.title-row .gap {
+  flex: 1;
+}
+
+.title-text {
+  line-height: 1.25;
+}
+
+/* Lignes d’infos (date/heure, coordonnées) plus aérées */
+.meta-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;          /* + espace entre éléments */
+  opacity: .85;
+  font-size: 12.5px;
+  line-height: 1.35;
+  margin-top: 3px;    /* espace entre lignes successives */
+}
+
+/* Petites icônes méta compactes */
+.meta-ic {
+  font-size: 18px;
+  height: 18px;
+  width: 18px;
+  opacity: .9;
+  margin-right: 2px;
+}
+
+/* ---------- Typo & tokens ---------- */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums; /* aligne mieux les chiffres */
+}
+
+.dot {
+  opacity: .55;
+  margin: 0 2px;      /* respire un peu entre date et heure */
+}
+
+/* ---------- Icônes par type ---------- */
+mat-icon.tag { color: #ff7a00; }  /* tag = orange */
+mat-icon.other { color: #9aa0a6; } /* défaut = gris */
+
+/* ---------- Zone "Charger plus" ---------- */
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 4px; /* + espace au-dessus du bouton */
+}
+
+/* ---------- Chips ---------- */
+mat-chip {
+  border-radius: 12px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  /* espace entre chips si plusieurs (coordonnées) */
+  margin-right: 6px;
+}
+
+.count-chip {
+  margin-left: 10px; /* espace entre titre header et compteur */
+}
+
+/* ---------- Dark mode tweaks ---------- */
+@media (prefers-color-scheme: dark) {
+  .ev-item:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+  }
+  mat-icon.other { color: #b0b6bb; }
+  .dot { opacity: .7; }
+}
+
+/* ---------- Petits écrans ---------- */
+@media (max-width: 480px) {
+  mat-card-header {
+    padding: 10px 12px 8px;
+  }
+  .title-row {
+    gap: 10px;
+    min-height: 26px;
+    margin-bottom: 4px;
+  }
+  .meta-row {
+    gap: 8px;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  mat-divider[inset] {
+    margin-left: 48px;
+    margin-top: 8px;
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\event-feed\event-feed.component.html
+REL:  src\app\sim\event-feed\event-feed.component.html
+────────────────────────────────────────────────────────────
+<mat-card appearance="outlined" class="ef-card">
+  <!-- HEADER -->
+  <mat-card-header>
+    <mat-card-title class="title-wrap">
+      {{ title() }}
+      <!-- compteur d'events -->
+      @if (events().length > 0) {
+        <mat-chip class="count-chip" color="primary" selected>
+          <mat-icon inline>list_alt</mat-icon>
+          {{ events().length }}
+        </mat-chip>
+      }
+    </mat-card-title>
+
+    <div class="spacer"></div>
+
+    <button mat-stroked-button (click)="refresh()" [disabled]="loading()">
+      <mat-icon>sync</mat-icon>
+      Relire
+    </button>
+  </mat-card-header>
+
+  <mat-card-content>
+
+    <!-- EMPTY STATE -->
+    @if (events().length === 0) {
+      <div class="empty">
+        <mat-icon>hourglass_empty</mat-icon>
+        <div>Aucun événement.</div>
+      </div>
+    }
+
+    <!-- LIST -->
+    @if (events().length > 0) {
+      <mat-list>
+        @for (ev of events(); track trackById) {
+          <mat-list-item class="ev-item" lines="3">
+
+            <!-- Icône type -->
+            <mat-icon
+              matListItemIcon
+              [ngClass]="ev.type || 'other'"
+              [matTooltip]="(ev.type || 'événement') | uppercase">
+              {{ iconFor(ev.type) }}
+            </mat-icon>
+
+            <!-- Ligne 1 : Type + Titre -->
+            <div matListItemTitle class="title-row">
+              <mat-chip [color]="chipColor(ev.type)" selected>
+                <mat-icon inline>label</mat-icon>
+                {{ (ev.type || 'event').toUpperCase() }}
+              </mat-chip>
+
+              <span class="title-text">
+                {{ titleFor(ev) }}
+              </span>
+
+              <span class="gap"></span>
+            </div>
+
+            <!-- Ligne 2 : Date + heure -->
+            @if (tsMs(ev); as t) {
+              <div matListItemLine class="meta-row">
+                <mat-icon inline class="meta-ic">schedule</mat-icon>
+                <span class="mono">{{ t | date:'yyyy-MM-dd' }}</span>
+                <span class="dot">·</span>
+                <span class="mono">{{ t | date:'HH:mm:ss' }}</span>
+              </div>
+            }
+
+            <!-- Ligne 3 : Coordonnées sous forme de chips -->
+            @if (hasXY(ev)) {
+              <div matListItemLine class="meta-row">
+                <mat-chip-set>
+                  <mat-chip>
+                    <mat-icon inline>my_location</mat-icon>
+                    x: <span class="mono" style="margin-left:4px">{{ ev.x }}</span>
+                  </mat-chip>
+                  <mat-chip>
+                    <mat-icon inline>my_location</mat-icon>
+                    y: <span class="mono" style="margin-left:4px">{{ ev.y }}</span>
+                  </mat-chip>
+                </mat-chip-set>
+              </div>
+            }
+
+            <mat-divider inset></mat-divider>
+          </mat-list-item>
+        }
+      </mat-list>
+
+      <!-- Actions liste -->
+      <div class="load-more">
+        <button mat-button (click)="loadMore()" [disabled]="loading()">
+          <mat-icon>expand_more</mat-icon>
+          Charger plus
+        </button>
+      </div>
+    }
+
+  </mat-card-content>
+</mat-card>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\event-feed\event-feed.component.ts
+REL:  src\app\sim\event-feed\event-feed.component.ts
+────────────────────────────────────────────────────────────
+import { Component, OnDestroy, OnInit, ChangeDetectionStrategy, Input, inject, signal } from '@angular/core';
+import { DatePipe, AsyncPipe, NgClass, UpperCasePipe } from '@angular/common';
+import { MatCardModule } from '@angular/material/card';
+import { MatListModule } from '@angular/material/list';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatDividerModule } from '@angular/material/divider';
+
+import { Subscription, tap } from 'rxjs';
+import type { EventItem } from '../../models/monitor.models';
+import { MonitorReadService } from '../../services/monitor-read.service';
+import { BotService } from '../../services/bot.service';
+
+@Component({
+  selector: 'app-sim-event-feed',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    // plus besoin de NgIf/NgFor — on utilise @if/@for (Angular ≥ v17)
+    DatePipe, AsyncPipe, NgClass,
+    MatCardModule, MatListModule, MatIconModule,
+    MatButtonModule, MatChipsModule, MatTooltipModule, MatDividerModule,UpperCasePipe
+  ],
+  templateUrl: './event-feed.component.html',
+  styleUrls: ['./event-feed.component.css'],
+})
+export class EventFeedComponent implements OnInit, OnDestroy {
+  @Input() roomId?: string;
+
+  private monitor = inject(MonitorReadService);
+  private botService = inject(BotService);
+  private sub?: Subscription;
+
+  events = signal<EventItem[]>([]);
+  loading = signal<boolean>(false);
+  title = signal<string>('Événements (global)');
+
+  ngOnInit(): void {
+    this.startListening();
+  }
+
+  ngOnDestroy(): void {
+    this.stopListening();
+  }
+
+  private startListening(): void {
+    this.stopListening();
+
+    if (this.roomId) {
+      this.title.set(`Événements — Room ${this.roomId}`);
+      const feed$ = this.monitor.events$(this.roomId, 50).pipe(tap((list:EventItem[]) => {
+        console.log("list",list);
+        if (list && list[0] != undefined && (list[0].id as string).startsWith('bot-')) {
+        const x = rndInt(-50, 50);
+        const y = rndInt(-50, 50);
+        console.log("list[0]",list[0]);
+        //ne semble pas produire deffet
+        this.botService.setPos(this.roomId as string,list[0].id as string,x,y)
+        }
+      })
+      );
+      this.sub = feed$.subscribe(list => this.events.set(list));
+    } else {
+      this.title.set('Événements (global)');
+      const feed$ = this.monitor.listenLatestGlobalEvents(100);
+      this.sub = feed$.subscribe(list => this.events.set(list));
+    }
+  }
+
+  private stopListening(): void {
+    this.sub?.unsubscribe();
+    this.sub = undefined;
+    if (this.roomId) this.monitor.stopRoomEvents(this.roomId);
+    else this.monitor.stopLatestGlobalEvents();
+  }
+
+  refresh(): void {
+    this.startListening();
+  }
+
+  async loadMore(): Promise<void> {
+    try {
+      this.loading.set(true);
+      if (this.roomId) {
+        await this.monitor.loadMoreRoomEvents(this.roomId, 50);
+      } else {
+        await this.monitor.loadMoreLatestGlobalEvents(100);
+      }
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  trackById = (_: number, ev: EventItem) => ev.id;
+
+  iconFor(type?: string): string {
+    switch ((type || '').toLowerCase()) {
+      case 'tag': return 'bolt';
+      default:    return 'event';
+    }
+  }
+
+  chipColor(type?: string): 'primary' | 'accent' | 'warn' | undefined {
+    switch ((type || '').toLowerCase()) {
+      case 'tag': return 'warn';
+      default:    return 'accent';
+    }
+  }
+
+  titleFor(ev: EventItem): string {
+    const t = (ev.type || '').toLowerCase();
+    if (t === 'tag') {
+      const h = (ev as any).hunterUid?.slice(0, 6) ?? '??????';
+      const v = (ev as any).victimUid?.slice(0, 6) ?? '??????';
+      return `${h} a tagué ${v}`;
+    }
+    return ev.type || 'Événement';
+  }
+
+  /** Retourne un timestamp (ms) à partir de "ts" (recommandé) avec fallback sur "at" */
+  tsMs(ev: any): number | null {
+    const src = ev?.ts ?? ev?.at ?? null;
+    if (!src) return null;
+
+    if (typeof src === 'number') return src;
+    if (src?.toMillis) return src.toMillis();
+    if (src instanceof Date) return src.getTime?.() ?? null;
+
+    const t = new Date(src as any).getTime?.();
+    return Number.isFinite(t) ? (t as number) : null;
+  }
+
+  /** Coordonnées présentes et valides */
+  hasXY(ev: any): boolean {
+    return Number.isFinite(ev?.x) && Number.isFinite(ev?.y);
+  }
+}
+
+function rndInt(min: number, max: number): number {
+  // bornes inclusives [-50, 50]
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.component.html
 REL:  src\app\sim\field-canvas\field-canvas.component.html
 ────────────────────────────────────────────────────────────
-<div class="canvas-wrap">
-  <canvas #cv width="900" height="540"></canvas>
-</div>
+<!-- Taille CSS libre : le code DPR adapte la résolution interne -->
+<canvas #cv style="width: 100%; height: 60vh; display: block;"></canvas>
 
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.component.ts
 REL:  src\app\sim\field-canvas\field-canvas.component.ts
 ────────────────────────────────────────────────────────────
-import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, input, signal, effect } from '@angular/core';
+import {
+  AfterViewInit, Component, ElementRef, OnDestroy, ViewChild,
+  effect, input, signal, inject, HostListener
+} from '@angular/core';
+import { MatIconModule } from '@angular/material/icon';
+import { Subscription } from 'rxjs';
 
-type BotLocal = { id: string; x: number; y: number; h: number|null };
-type World = { minX:number; maxX:number; minY:number; maxY:number };
+// 💡 adapte ce chemin au tien
+
+
+import { World, Marker } from './field-canvas.model';
+import { COLORS, colorForRole } from './field-canvas.theme';
+import { resizeCanvasToDPR, setupResizeObserver } from './field-canvas.dpr';
+import { PositionsService } from '../../services/positions.service';
 
 @Component({
   selector: 'app-field-canvas',
   standalone: true,
+  imports: [MatIconModule],
   templateUrl: './field-canvas.component.html',
 })
 export class FieldCanvasComponent implements AfterViewInit, OnDestroy {
-  world = input<World>({ minX:-45,maxX:45,minY:-30,maxY:30 });
-  bots  = input<BotLocal[]>([]);
+  // ---- Inputs ----
+  roomId = input<string>(''); // requis pour écouter RTDB joueurs + bots via PositionsService
+  world  = input<World>({ minX: -45, maxX: 45, minY: -30, maxY: 30 });
 
   @ViewChild('cv', { static: true }) cvRef!: ElementRef<HTMLCanvasElement>;
   private ctx!: CanvasRenderingContext2D;
   private raf: number | null = null;
 
+  // ---- Services ----
+  private readonly positions = inject(PositionsService);
+
+  // ---- État ----
+  private subs = new Subscription();
+  private markers = signal<Marker[]>([]);
+  private ro: ResizeObserver | null = null;
+
   constructor() {
+    // Redessine quand le contexte est prêt ou quand markers/world changent
     effect(() => { if (this.ctx) this.frame(); });
+
+    // Écoute RTDB via PositionsService.positions$ (fusion joueurs+bots) quand roomId change
+    effect(() => {
+      const id = (this.roomId() || '').trim();
+      this.cleanupStreams();
+
+      if (!id) {
+        this.markers.set([]);
+        return;
+      }
+
+      this.positions.startListening(id);
+
+      const s = this.positions.positions$.subscribe((mapObj) => {
+        // mapObj: Record<string, { x,y,t?,name?,role? }>
+        const arr: Marker[] = Object.entries(mapObj || {}).map(([uid, p]) => ({
+          id: uid,
+          x: p.x,
+          y: p.y,
+          role: p.role ?? null,
+          isBot: uid.startsWith('bot-'), // la fusion du service préfixe déjà les bots
+        }));
+        // debug visuel si besoin
+        // console.debug('[FieldCanvas] markers:', arr.length, arr.slice(0,3));
+        this.markers.set(arr);
+      });
+
+      this.subs.add(s);
+    });
   }
 
+  // ---- Cycle de vie ----
   ngAfterViewInit() {
     const ctx = this.cvRef.nativeElement.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D introuvable');
     this.ctx = ctx;
+
+    // Hi-DPI + resize adaptatif
+    const onResize = () => {
+      resizeCanvasToDPR(this.cvRef.nativeElement);
+    };
+    resizeCanvasToDPR(this.cvRef.nativeElement);
+    this.ro = setupResizeObserver(this.cvRef.nativeElement, onResize);
+    if (!this.ro) onResize(); // fallback 1er passage
+
     this.frame();
   }
-  ngOnDestroy(){ if (this.raf) cancelAnimationFrame(this.raf); }
 
-  private frame(){
+  ngOnDestroy() {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.cleanupStreams();
+    this.positions.stop();
+    if (this.ro) this.ro.disconnect();
+  }
+
+  private cleanupStreams() {
+    this.subs.unsubscribe();
+    this.subs = new Subscription();
+    this.markers.set([]);
+  }
+
+  // Fallback supplémentaire
+  @HostListener('window:resize')
+  onWinResize() {
+    if (!this.ctx) return;
+    resizeCanvasToDPR(this.cvRef.nativeElement);
+  }
+
+  // ---- Dessin principal ----
+  private frame() {
     const ctx = this.ctx, cv = this.cvRef.nativeElement;
+
     // fond
-    ctx.clearRect(0,0,cv.width,cv.height);
-    ctx.fillStyle = '#10151c'; ctx.fillRect(0,0,cv.width,cv.height);
-    // grille
-    this.drawGrid(5);
-    // bots (aperçu local)
-    ctx.fillStyle = '#6aa0ff';
-    for (const b of (this.bots()||[])) {
-      const p = this.toCanvas(b.x, b.y);
-      ctx.beginPath(); ctx.arc(p.cx, p.cy, 5.5, 0, Math.PI*2); ctx.fill();
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, cv.width, cv.height);
+
+    // grille + axes + graduations
+    this.drawGridWithTicks(5);
+
+    // markers (couleur selon rôle, carré si bot)
+    const items = this.markers();
+    for (const m of items) {
+      const c = colorForRole(m.role);
+      const p = this.toCanvas(m.x, m.y);
+      ctx.fillStyle = c.point;
+      this.drawMarker(p.cx, p.cy, m.isBot, 7);
     }
-    this.raf = requestAnimationFrame(()=>this.frame());
+
+    this.raf = requestAnimationFrame(() => this.frame());
   }
 
-  private drawGrid(step=5){
-    const {minX,maxX,minY,maxY} = this.world();
+  // carré (bot) / cercle (humain)
+  private drawMarker(cx: number, cy: number, isBot: boolean, r: number) {
     const ctx = this.ctx;
-    ctx.strokeStyle='#223043'; ctx.lineWidth=1;
-    for(let x=Math.ceil(minX/step)*step; x<=maxX; x+=step){
-      const a=this.toCanvas(x,minY), b=this.toCanvas(x,maxY);
-      ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
+    if (isBot) {
+      const d = r * 2;
+      ctx.fillRect(Math.round(cx - r), Math.round(cy - r), d, d);
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
     }
-    for(let y=Math.ceil(minY/step)*step; y<=maxY; y+=step){
-      const a=this.toCanvas(minX,y), b=this.toCanvas(maxX,y);
-      ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
-    }
-    ctx.strokeStyle='#8fa3bf'; ctx.lineWidth=1.4;
-    let a=this.toCanvas(0,minY), b=this.toCanvas(0,maxY);
-    ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
-    a=this.toCanvas(minX,0), b=this.toCanvas(maxX,0);
-    ctx.beginPath(); ctx.moveTo(a.cx,a.cy); ctx.lineTo(b.cx,b.cy); ctx.stroke();
   }
 
-  private toCanvas(x:number,y:number){
-    const cv=this.cvRef.nativeElement;
-    const {minX,maxX,minY,maxY} = this.world();
+  // Grille + axes + graduations + labels tous les 10
+  private drawGridWithTicks(step = 5) {
+    const { minX, maxX, minY, maxY } = this.world();
+    const ctx = this.ctx;
+
+    // Grille
+    ctx.strokeStyle = COLORS.grid;
+    ctx.lineWidth = 1;
+    for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
+      const a = this.toCanvas(x, minY), b = this.toCanvas(x, maxY);
+      ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(b.cx, b.cy); ctx.stroke();
+    }
+    for (let y = Math.ceil(minY / step) * step; y <= maxY; y += step) {
+      const a = this.toCanvas(minX, y), b = this.toCanvas(maxX, y);
+      ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(b.cx, b.cy); ctx.stroke();
+    }
+
+    // Axes
+    ctx.strokeStyle = COLORS.axes;
+    ctx.lineWidth = 1.6;
+    let a = this.toCanvas(0, minY), b = this.toCanvas(0, maxY);
+    ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(b.cx, b.cy); ctx.stroke();
+    a = this.toCanvas(minX, 0); b = this.toCanvas(maxX, 0);
+    ctx.beginPath(); ctx.moveTo(a.cx, a.cy); ctx.lineTo(b.cx, b.cy); ctx.stroke();
+
+    // Ticks + labels
+    ctx.fillStyle = COLORS.ticks;
+    ctx.strokeStyle = COLORS.ticks;
+    ctx.lineWidth = 1;
+    ctx.font = '12px system-ui, Arial, sans-serif';
+
+    // Axe X (y=0)
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
+      const p = this.toCanvas(x, 0);
+      const tick = (x % 10 === 0) ? 8 : 5;
+      ctx.beginPath();
+      ctx.moveTo(p.cx, p.cy - tick);
+      ctx.lineTo(p.cx, p.cy + tick);
+      ctx.stroke();
+      if (x % 10 === 0 && x !== 0) {
+        ctx.fillText(String(x), p.cx, p.cy + 8);
+      }
+    }
+
+    // Axe Y (x=0)
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let y = Math.ceil(minY / step) * step; y <= maxY; y += step) {
+      const p = this.toCanvas(0, y);
+      const tick = (y % 10 === 0) ? 8 : 5;
+      ctx.beginPath();
+      ctx.moveTo(p.cx - tick, p.cy);
+      ctx.lineTo(p.cx + tick, p.cy);
+      ctx.stroke();
+      if (y % 10 === 0 && y !== 0) {
+        ctx.fillText(String(y), p.cx - 10, p.cy);
+      }
+    }
+
+    // Origine (0,0)
+    const o = this.toCanvas(0, 0);
+    ctx.fillStyle = COLORS.label;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('0', o.cx + 6, o.cy + 4);
+  }
+
+  private toCanvas(x: number, y: number) {
+    const cv = this.cvRef.nativeElement;
+    const { minX, maxX, minY, maxY } = this.world();
     const nx = (x - minX) / (maxX - minX);
     const ny = (y - minY) / (maxY - minY);
     return { cx: nx * cv.width, cy: cv.height - ny * cv.height };
   }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.dpr.ts
+REL:  src\app\sim\field-canvas\field-canvas.dpr.ts
+────────────────────────────────────────────────────────────
+// Utilitaires Hi-DPI (devicePixelRatio) + resize
+
+export function resizeCanvasToDPR(cv: HTMLCanvasElement) {
+  let rect = cv.getBoundingClientRect();
+
+  // Si le canvas est "display:none" au premier passage, fallback
+  if (rect.width === 0 || rect.height === 0) {
+    if (!cv.style.width)  cv.style.width  = '900px';
+    if (!cv.style.height) cv.style.height = '600px';
+    rect = cv.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      rect = new DOMRect(0, 0, 900, 600);
+    }
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const targetW = Math.max(1, Math.floor(rect.width  * dpr));
+  const targetH = Math.max(1, Math.floor(rect.height * dpr));
+
+  if (cv.width !== targetW || cv.height !== targetH) {
+    cv.width = targetW;
+    cv.height = targetH;
+  }
+  // garde cohérence CSS
+  cv.style.width  = `${Math.max(1, Math.floor(rect.width))}px`;
+  cv.style.height = `${Math.max(1, Math.floor(rect.height))}px`;
+}
+
+export function setupResizeObserver(
+  el: HTMLElement,
+  onResize: () => void
+): ResizeObserver | null {
+  if (!('ResizeObserver' in window)) return null;
+  const ro = new ResizeObserver(() => onResize());
+  ro.observe(el);
+  return ro;
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.model.ts
+REL:  src\app\sim\field-canvas\field-canvas.model.ts
+────────────────────────────────────────────────────────────
+// Types & interfaces partagés
+
+export type World = { minX: number; maxX: number; minY: number; maxY: number };
+
+export type RoleNorm = 'hunter' | 'prey' | null;
+
+export type Marker = {
+  id: string;
+  x: number;
+  y: number;
+  role?: string | null;  // 'hunter'|'chasseur'|'prey'|'chassé'|autre
+  isBot: boolean;        // carré si true, cercle sinon
+};
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\field-canvas\field-canvas.theme.ts
+REL:  src\app\sim\field-canvas\field-canvas.theme.ts
+────────────────────────────────────────────────────────────
+import type { RoleNorm } from './field-canvas.model';
+
+export const COLORS = {
+  bg:   '#10151c',
+  grid: '#223043',
+  axes: '#8fa3bf',
+  ticks:'#9fb0c8',
+  label:'#c7d7ef',
+  role: {
+    hunter: '#ff9800', // orange
+    prey:   '#6aa0ff', // bleu
+    neutral:'#b0b9c6', // gris
+  }
+} as const;
+
+export function normalizeRole(r?: string | null): RoleNorm {
+  if (!r) return null;
+  const v = r.toLowerCase();
+  if (v === 'hunter' || v === 'chasseur') return 'hunter';
+  if (v === 'prey'   || v === 'chassé')   return 'prey';
+  return null;
+}
+
+export function colorForRole(r?: string | null): { point: string } {
+  const nr = normalizeRole(r);
+  if (nr === 'hunter') return { point: COLORS.role.hunter };
+  if (nr === 'prey')   return { point: COLORS.role.prey };
+  return { point: COLORS.role.neutral };
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\match-sim.store.ts
+REL:  src\app\sim\match-sim.store.ts
+────────────────────────────────────────────────────────────
+// src/app/sim/match-sim.store.ts
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { toObservable } from '@angular/core/rxjs-interop';
+import { Observable, of } from 'rxjs';
+import { catchError, distinctUntilChanged, filter, map, startWith, switchMap } from 'rxjs/operators';
+
+import { Database, ref, update } from '@angular/fire/database';
+import { Firestore, doc, docData, serverTimestamp, setDoc } from '@angular/fire/firestore';
+import { Auth } from '@angular/fire/auth';
+
+
+
+import { BotLocal, DotDTO, MatchStatusVM, MatchStatusState } from './match-sim.types';
+import { BotService } from '../services/bot.service';
+import { MonitorActionsService } from '../services/monitor-actions.service';
+import { PositionsService } from '../services/positions.service';
+import { RtdbPositionsService } from '../services/rtdb-positions.service';
+
+@Injectable({ providedIn: 'root' })
+export class MatchSimStore {
+  // Services
+  private db = inject(Database);
+  private fs = inject(Firestore);
+  private route = inject(ActivatedRoute);
+  private rtdbPos = inject(RtdbPositionsService);
+  private positions = inject(PositionsService);
+  private actions = inject(MonitorActionsService);
+  private auth = inject(Auth);
+  private botService = inject(BotService);
+
+  // Signals (état local)
+  readonly newRoomName = signal<string>('');
+  readonly roomId = signal<string>('');
+  readonly nbBots = signal<number>(6);
+  readonly speed = signal<number>(300);
+  readonly victimUid = signal<string | null>(null);
+  readonly bots = signal<BotLocal[]>([]);
+
+  readonly gameStarted = signal<boolean>(false);
+  readonly phaseSig = computed<'pre' | 'running'>(() => (this.gameStarted() ? 'running' : 'pre'));
+
+  // Doc room courant (Firestore)
+  readonly roomDocSig = signal<any | null>(null);
+
+  // Statut combiné pour l’UI
+  readonly statusSig = computed<MatchStatusVM>(() => {
+    const room = this.roomDocSig();
+    const state = (room?.state ?? (this.gameStarted() ? 'running' : 'idle')) as MatchStatusState;
+    const timeLimitSec: number | null = room?.timeLimit ?? null;
+    const startedAtMs: number | null = room?.startedAt ?? null;
+
+    let elapsedMs: number | null = null;
+    let leftMs: number | null = null;
+    let progress01: number | null = null;
+
+    if (state === 'running' && timeLimitSec && startedAtMs) {
+      const now = Date.now();
+      elapsedMs = Math.max(0, now - startedAtMs);
+      const totalMs = timeLimitSec * 1000;
+      leftMs = Math.max(0, totalMs - elapsedMs);
+      progress01 = Math.min(1, Math.max(0, elapsedMs / totalMs));
+    }
+
+    const label =
+      state === 'running' ? 'En cours' :
+      state === 'ended' || state === 'done' ? 'Terminée' : 'Préparation';
+
+    const color: 'primary' | 'accent' | 'warn' =
+      state === 'running' ? 'primary' : (state === 'idle' ? 'accent' : 'warn');
+
+    return { state, label, color, elapsedMs, leftMs, progress01 };
+  });
+
+  // Stream des positions (RTDB)
+  readonly dots$: Observable<DotDTO[]> = toObservable(this.roomId).pipe(
+    map(id => (id ?? '').trim()),
+    distinctUntilChanged(),
+    filter(id => !!id.length),
+    switchMap(id => this.rtdbPos.liveMap$(id) as Observable<DotDTO[]>),
+  );
+
+  constructor() {
+    // RoomId initial depuis la route
+    effect(() => {
+      const id = this.route.snapshot.paramMap.get('id');
+      if (id) this.roomId.set(id);
+    });
+
+    // Abonnement au doc room
+    effect(() => {
+      const id = (this.roomId() || '').trim();
+      if (!id) { this.roomDocSig.set(null); return; }
+
+      const sub = docData(doc(this.fs, 'rooms', id))
+        .pipe(startWith(null), catchError(() => of(null)))
+        .subscribe(d => this.roomDocSig.set(d));
+      return () => sub.unsubscribe();
+    });
+  }
+
+  // --- Actions ---
+
+  listen(): void {
+    const id = this.roomId().trim();
+    if (!id) return this.botService.toast('Entre un Room ID');
+    this.positions.startListening(id);
+  }
+
+  unlisten(): void {
+    this.positions.stop();
+  }
+
+  async createRoomAndUseIt(): Promise<void> {
+    const name = this.newRoomName().trim();
+    if (!name) { this.botService.toast('Donne un nom de room'); return; }
+    const ownerUid = this.auth.currentUser?.uid;
+    if (!ownerUid) { this.botService.toast('Connecte-toi pour créer une room'); return; }
+
+    try {
+      const { roomId, name: finalName } = await this.actions.createRoomWithOwner(name, ownerUid);
+      this.roomId.set(roomId);
+      this.listen();
+      this.gameStarted.set(false);
+      await this.setRoomState('idle');
+      this.botService.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
+    } catch (e: any) {
+      this.botService.toast(`Création échouée : ${e?.message ?? e}`);
+    }
+  }
+
+  async spawnBots(role: string = 'prey'): Promise<void> {
+    await this.botService.spawnBots(this.roomId(), role, this.nbBots(), this.bots);
+    this.gameStarted.set(false);
+    await this.setRoomState('idle');
+  }
+
+  start(): void {
+    const id = this.roomId().trim();
+    if (!id) return this.botService.toast('Room ID manquant');
+
+    const bots = this.bots();
+    const tick = Math.max(80, this.speed());
+    const WORLD = { minX: -45, maxX: 45, minY: -30, maxY: 30 };
+
+    // Anime les bots locaux s’il y en a
+    for (let i = 0; i < bots.length; i++) {
+      if (bots[i].h != null) continue;
+      const h = window.setInterval(async () => {
+        bots[i].x = this.botService.clamp(bots[i].x + this.botService.rnd(-1, 1), WORLD.minX, WORLD.maxX);
+        bots[i].y = this.botService.clamp(bots[i].y + this.botService.rnd(-1, 1), WORLD.minY, WORLD.maxY);
+        await update(ref(this.db, `bots/${id}/${bots[i].id}`), {
+          x: bots[i].x, y: bots[i].y, t: Date.now(),
+        });
+      }, tick + ((i % 3) * 70));
+      bots[i] = { ...bots[i], h };
+    }
+
+    this.bots.set([...bots]);
+    this.gameStarted.set(true);
+    this.setRoomState('running');
+    this.botService.toast('Partie démarrée');
+  }
+
+  stop(): void {
+    const bots = this.bots();
+    bots.forEach(b => {
+      if (b.h != null) {
+        clearInterval(b.h);
+        b.h = null;
+      }
+    });
+    this.bots.set([...bots]);
+    this.gameStarted.set(false);
+    this.setRoomState('idle');
+    this.botService.toast('Partie terminée');
+  }
+
+  async simulateTag(dots: DotDTO[]): Promise<void> {
+    const id = this.roomId().trim();
+    if (!id) return this.botService.toast('Room ID manquant');
+    if (!dots?.length) return this.botService.toast('Pas de cibles');
+
+    const victim = this.victimUid() || dots[0].uid;
+    const target = victim ? dots.find(d => d.uid === victim) : undefined;
+    if (!target || !target.uid) return this.botService.toast('Cible invalide');
+
+    const actorUid = this.auth.currentUser?.uid;
+    if (!actorUid) { this.botService.toast('Connecte-toi pour émettre un TAG'); return; }
+
+    try {
+      await this.actions.emitTag(id, actorUid, target.uid, target.x, target.y);
+      this.botService.toast(`TAG → ${target.uid.slice(0, 6)}…`);
+    } catch (e: any) {
+      this.botService.toast(`TAG refusé : ${e?.message ?? e}`);
+    }
+  }
+
+  // --- Firestore helper ---
+  private async setRoomState(state: 'idle'|'running'|'ended') {
+    const id = (this.roomId() || '').trim();
+    if (!id) return;
+    const roomRef = doc(this.fs, 'rooms', id);
+    await setDoc(roomRef, {
+      state,
+      ...(state === 'running' ? { startedAt: Date.now() } : {}),
+      updatedAt: serverTimestamp(),
+    } as any, { merge: true });
+  }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\match-sim.types.ts
+REL:  src\app\sim\match-sim.types.ts
+────────────────────────────────────────────────────────────
+// src/app/sim/match-sim.types.ts
+export type BotLocal = { id: string; x: number; y: number; h: number | null };
+export type DotDTO = { x: number; y: number; uid?: string };
+
+// Facilité pour la barre d'état
+export type MatchStatusState = 'idle' | 'running' | 'ended' | 'done';
+export interface MatchStatusVM {
+  state: MatchStatusState;
+  label: 'Préparation' | 'En cours' | 'Terminée';
+  color: 'primary' | 'accent' | 'warn';
+  elapsedMs: number | null;
+  leftMs: number | null;
+  progress01: number | null;
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\match-sim.utils.ts
+REL:  src\app\sim\match-sim.utils.ts
+────────────────────────────────────────────────────────────
+// src/app/sim/match-sim.utils.ts
+export function displayMs(v: number | null): string {
+  return `${v ?? 0} ms`;
+}
+
+export function fmtTime(ms?: number | null): string {
+  if (!ms || ms < 0) ms = 0;
+  const s = Math.floor(ms / 1000);
+  const mm = Math.floor(s / 60).toString().padStart(2, '0');
+  const ss = (s % 60).toString().padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+export function normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
+  const r = (role ?? '').toLowerCase().trim();
+  if (r === 'hunter' || r === 'chasseur') return r as any;
+  if (r === 'prey' || r === 'proie') return r as any;
+  return 'prey';
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\numeric-positions\numeric-positions.component.html
+REL:  src\app\sim\numeric-positions\numeric-positions.component.html
+────────────────────────────────────────────────────────────
+<mat-card appearance="outlined" class="np-card">
+  <mat-card-header class="np-header">
+    <div class="np-head-left">
+      <mat-card-title>Positions (numérique)</mat-card-title>
+      <mat-card-subtitle>
+        Room : <span class="mono">#{{ roomId() || '—' }}</span>
+      </mat-card-subtitle>
+    </div>
+
+    <div class="np-head-right">
+      <button mat-stroked-button color="primary" (click)="refresh()" aria-label="Relire les positions">
+        <mat-icon aria-hidden="true">sync</mat-icon>
+        <span class="btn-text">Relire</span>
+      </button>
+    </div>
+  </mat-card-header>
+
+  <mat-card-content>
+    <div class="grid">
+      <ng-container *ngFor="let r of rows(); trackBy: trackByUid">
+        <mat-card class="row-card" appearance="outlined">
+          <mat-card-header class="row-head">
+            <div mat-card-avatar class="avatar" [class.bot]="r.isBot">
+              <mat-icon aria-hidden="true">{{ r.isBot ? 'smart_toy' : 'person' }}</mat-icon>
+            </div>
+
+            <div class="id-block">
+              <mat-card-title class="uid mono" [attr.title]="r.uid">
+                {{ r.uid }}
+              </mat-card-title>
+              <mat-card-subtitle class="name">{{ r.name || '—' }}</mat-card-subtitle>
+            </div>
+
+            <div class="role-chip">
+              <mat-chip-set>
+                <mat-chip
+                  [color]="(r.role === 'hunter' || r.role === 'chasseur') ? 'primary' : (r.role === 'bot' ? 'accent' : undefined)"
+                  class="role-chip__chip"
+                  [ngClass]="{
+                    'is-hunter': (r.role === 'hunter' || r.role === 'chasseur'),
+                    'is-bot': r.role === 'bot'
+                  }"
+                >
+                  {{ r.role || '—' }}
+                </mat-chip>
+              </mat-chip-set>
+            </div>
+          </mat-card-header>
+
+          <mat-card-content>
+            <div class="kv">
+              <div class="k">Spawn (x, y)</div>
+              <div class="v">{{ r.spawnX ?? '—' }} , {{ r.spawnY ?? '—' }}</div>
+            </div>
+            <div class="kv">
+              <div class="k">Pos (x, y)</div>
+              <div class="v">{{ r.x ?? '—' }} , {{ r.y ?? '—' }}</div>
+            </div>
+            <div class="kv">
+              <div class="k">Δt</div>
+              <div class="v">{{ ageLabel(r.t) }}</div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </ng-container>
+    </div>
+
+    <div class="empty" *ngIf="!rows().length">
+      <mat-icon>location_off</mat-icon>
+      <div>Aucune donnée.</div>
+    </div>
+  </mat-card-content>
+</mat-card>
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\numeric-positions\numeric-positions.component.scss
+REL:  src\app\sim\numeric-positions\numeric-positions.component.scss
+────────────────────────────────────────────────────────────
+.np-card {
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+  /* En-tête : gauche (titres) / droite (actions), wrap sur mobile */
+  .np-header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .np-head-left { min-width: 200px; flex: 1 1 auto; }
+  .np-head-right {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+    .btn-text { display: inline; }
+  }
+
+  /* Sur très petit écran, n’afficher que l’icône du bouton */
+  @container (max-width: 360px) {
+    .np-head-right .btn-text { display: none; }
+  }
+}
+
+/* Grille fluide : auto-fit pour remplir la ligne avec des cartes min 260px */
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+/* Carte d’une ligne */
+.row-card {
+  .row-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+
+  .avatar {
+    background: color-mix(in oklab, currentColor 15%, transparent);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    width: 40px; height: 40px;
+    mat-icon { font-size: 22px; }
+    &.bot { background: color-mix(in oklab, #ffc107 25%, transparent); }
+  }
+
+  .id-block { min-width: 0; flex: 1 1 auto; }
+  .uid {
+    font-size: clamp(12px, 2.5vw, 14px);
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .name { font-size: 12px; opacity: .75; }
+
+  .role-chip { margin-left: auto; }
+
+  mat-card-content {
+    display: grid; gap: 8px; padding-top: 8px;
+  }
+
+  /* Paires clé-valeur : 1 colonne sur mobile, 2 colonnes quand il y a de la place */
+  .kv {
+    display: grid; row-gap: 2px; column-gap: 8px;
+    grid-template-columns: 1fr; /* mobile */
+    align-items: baseline;
+
+    .k { opacity: .7; font-size: 12px; }
+    .v { font-weight: 600; font-size: 13px; }
+
+    @container (min-width: 360px) {
+      grid-template-columns: 120px 1fr;
+    }
+  }
+}
+
+/* État vide */
+.empty {
+  display: grid; place-items: center; gap: 6px; padding: 14px 0; opacity: .7;
+  mat-icon { font-size: 22px; }
+}
+
+/* Container queries : activer sur la carte principale pour un meilleur contrôle fin */
+:host { container-type: inline-size; }
+
+/* Respecte l’accessibilité (animation réduite) */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+
+────────────────────────────────────────────────────────────
+FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\numeric-positions\numeric-positions.component.ts
+REL:  src\app\sim\numeric-positions\numeric-positions.component.ts
+────────────────────────────────────────────────────────────
+import { Component, ChangeDetectionStrategy, OnInit, OnDestroy, inject, input, signal } from '@angular/core';
+import { AsyncPipe, DecimalPipe, DatePipe, NgFor, NgIf, NgClass } from '@angular/common';
+import { MatCardModule } from '@angular/material/card';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatChipsModule } from '@angular/material/chips';
+import { Subscription } from 'rxjs';
+
+import { SpawnPositionMergeService, MergedRow } from '../../services/spawn-position-merge.service';
+import { PlayerDoc, Role } from '../../models/monitor.models';
+
+
+
+
+
+@Component({
+  selector: 'app-numeric-positions',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    // Angular
+    AsyncPipe, DecimalPipe, DatePipe, NgFor, NgIf,
+    // Material
+    MatCardModule, MatIconModule, MatButtonModule, MatChipsModule,NgClass
+  ],
+  templateUrl: './numeric-positions.component.html',
+  styleUrls: ['./numeric-positions.component.scss'],
+})
+export class NumericPositionsComponent implements OnInit, OnDestroy {
+  private svc = inject(SpawnPositionMergeService);
+
+  /** Room cible */
+  roomId = input<string>('');
+
+  /** Lignes fusionnées spawn + position */
+  rows = signal<MergedRow[]>([]);
+
+  private sub?: Subscription;
+
+  ngOnInit(): void {
+    const id = (this.roomId() || '').trim();
+    if (id) this.svc.start(id);
+    this.sub = this.svc.merged$.subscribe(rows => this.rows.set(rows));
+  }
+
+  ngOnDestroy(): void {
+    this.sub?.unsubscribe();
+    this.svc.stop();
+  }
+
+  refresh(): void {
+    this.svc.stop();
+    const id = (this.roomId() || '').trim();
+    if (id) this.svc.start(id);
+  }
+
+  ageLabel(t?: number): string {
+    if (!t) return '—';
+    const dt = Math.max(0, Date.now() - t);
+    if (dt < 1000) return `${dt} ms`;
+    const s = Math.floor(dt / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}m${r.toString().padStart(2,'0')}s`;
+  }
+
+  trackByUid = (_: number, r: MergedRow) => r.uid;
 }
 
 
@@ -19557,128 +21134,152 @@ REL:  src\app\sim\players-controls\players-controls.component.html
 
     <mat-divider class="m12"></mat-divider>
 
-   <!-- Toolbar de la liste -->
-<div class="list-toolbar">
-  <mat-form-field appearance="outline" class="w-search">
-    <mat-label>Rechercher un joueur</mat-label>
-    <input matInput placeholder="Nom ou UID"
-           [value]="query()"
-           (input)="query.set(($any($event.target)?.value ?? '').trim())">
-    <button mat-icon-button matSuffix type="button" aria-label="Effacer"
-            *ngIf="query()"
-            (click)="query.set('')">
-      <mat-icon>close</mat-icon>
-    </button>
-  </mat-form-field>
-
-  <mat-button-toggle-group [value]="sortBy()" (change)="sortBy.set($any($event.value))" class="w-sort" appearance="legacy">
-    <mat-button-toggle value="role"><mat-icon>group</mat-icon> Rôle</mat-button-toggle>
-    <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
-  </mat-button-toggle-group>
-</div>
-
-<!-- Liste améliorée -->
-<mat-nav-list class="list list--compact">
-  @for (p of filteredPlayersSig(); track $index) {
-    <a mat-list-item class="row" [class.hunter]="isHunter(p)">
-      <!-- Avatar -->
-      <div matListItemIcon class="avatar" [class.hunter]="isHunter(p)">
-        {{ initials(p?.displayName, ((p?.uid || '').slice(0,2)).toUpperCase()) }}
-      </div>
-
-      <!-- Corps compact -->
-      <div matListItemTitle class="body body--compact">
-        <span class="name" [title]="p?.displayName || p?.uid">
-          {{ p?.displayName || p?.uid || '—' }}
-        </span>
-
-        <!-- tags compacts -->
-        <div class="meta">
-          <mat-icon class="role-ico" [matTooltip]="isHunter(p) ? 'Chasseur' : 'Proie'">
-            {{ isHunter(p) ? 'shield_person' : 'hiking' }}
-          </mat-icon>
-          @if (p?.score !== undefined) {
-            <span class="pill" aria-label="score">S: {{ p?.score }}</span>
-          }
-          <span class="uid mono" [matTooltip]="p?.uid || '—'">
-            #{{ (p?.uid || '').slice(0,6) }}
-          </span>
-        </div>
-
-        <!-- Toggle rôle -->
-        <mat-button-toggle-group
-          class="toggle-dense"
-          [value]="isHunter(p) ? 'hunter' : 'prey'"
-          [disabled]="!p?.uid || busyRoleUid() === p?.uid"
-          (change)="p?.uid && setRole($any(p?.uid), $any($event.value))">
-          <mat-button-toggle value="hunter" [matTooltip]="'Chasseur'">
-            <mat-icon>shield_person</mat-icon>
-          </mat-button-toggle>
-          <mat-button-toggle value="prey" [matTooltip]="'Proie'">
-            <mat-icon>hiking</mat-icon>
-          </mat-button-toggle>
-        </mat-button-toggle-group>
-
-        @if (busyRoleUid() === p?.uid) {
-          <mat-progress-spinner mode="indeterminate" diameter="16" class="spinner"></mat-progress-spinner>
-        }
-
-        <!-- Actions -->
-        <button mat-icon-button
-                [disabled]="!p?.uid"
-                [matMenuTriggerFor]="playerMenu"
-                (click)="openMenuFor(p?.uid)"
-                aria-label="Actions joueur">
-        <mat-icon>more_vert</mat-icon>
+    <!-- Toolbar de la liste -->
+    <div class="list-toolbar">
+      <mat-form-field appearance="outline" class="w-search">
+        <mat-label>Rechercher un joueur</mat-label>
+        <input matInput placeholder="Nom ou UID"
+               [value]="query()"
+               (input)="query.set(($any($event.target)?.value ?? '').trim())">
+        <button mat-icon-button matSuffix type="button" aria-label="Effacer"
+                *ngIf="query()"
+                (click)="query.set('')">
+          <mat-icon>close</mat-icon>
         </button>
-      </div>
-    </a>
-    <mat-divider inset></mat-divider>
-  }
+      </mat-form-field>
 
-  @if (filteredPlayersSig().length === 0) {
-    <div class="empty">
-      <mat-icon>group_off</mat-icon>
-      <span>Aucun joueur ne correspond.</span>
+      <mat-button-toggle-group [value]="sortBy()" (change)="sortBy.set($any($event.value))" class="w-sort" appearance="legacy">
+        <mat-button-toggle value="role"><mat-icon>group</mat-icon> Rôle</mat-button-toggle>
+        <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
+      </mat-button-toggle-group>
     </div>
-  }
-</mat-nav-list>
+  
+    <!-- Liste améliorée -->
+    <mat-nav-list class="list list--compact">
+      @for (p of filteredPlayersSig(); track $index) {
+        <a
+          mat-list-item
+          class="row"
+          [ngClass]="{ 'hunter': isHunter(p), 'is-owner': isOwner(p?.uid) }"
+        >
+          <!-- Avatar -->
+          <div
+            matListItemIcon
+            class="avatar"
+            [ngClass]="{ 'hunter': isHunter(p), 'is-owner': isOwner(p?.uid) }"
+          >
+            {{ initials(p?.displayName, ((p?.uid || '').slice(0,2)).toUpperCase()) }}
+          </div>
 
-<!-- Menu global -->
-<mat-menu #playerMenu="matMenu" (closed)="currentUid.set('')">
-  <button mat-menu-item
-          (click)="setRole(currentUid(), 'hunter')"
-          [disabled]="busyRoleUid() === currentUid() || !currentUid()">
-    <mat-icon>shield_person</mat-icon>
-    <span>Définir chasseur</span>
-  </button>
+          <!-- Corps compact -->
+          <div matListItemTitle class="body body--compact">
+            <span class="name" [title]="p?.displayName || p?.uid">
+              {{ p?.displayName || p?.uid || '—' }}
+            </span>
 
-  <button mat-menu-item
-          (click)="setRole(currentUid(), 'prey')"
-          [disabled]="busyRoleUid() === currentUid() || !currentUid()">
-    <mat-icon>hiking</mat-icon>
-    <span>Définir proie</span>
-  </button>
+            <!-- badge owner -->
+            <span class="owner-badge" *ngIf="isOwner(p?.uid)">
+              <mat-icon inline matTooltip="Owner">verified_user</mat-icon>
+              Owner
+            </span>
 
-  <mat-divider></mat-divider>
+            <!-- tags compacts -->
+            <div class="meta">
+              <mat-icon class="role-ico" [matTooltip]="isHunter(p) ? 'Chasseur' : 'Proie'">
+                {{ isHunter(p) ? 'shield_person' : 'hiking' }}
+              </mat-icon>
+              @if (p?.score !== undefined) {
+                <span class="pill" aria-label="score">S: {{ p?.score }}</span>
+              }
+              <span class="uid mono" [matTooltip]="p?.uid || '—'">
+                #{{ (p?.uid || '').slice(0,6) }}
+              </span>
+            </div>
 
-  <button mat-menu-item
-          (click)="copyUid(currentUid())"
-          [disabled]="!currentUid()">
-    <mat-icon>content_copy</mat-icon>
-    <span>Copier l’UID</span>
-  </button>
+            <!-- Toggle rôle -->
+            <mat-button-toggle-group
+              class="toggle-dense"
+              [value]="isHunter(p) ? 'hunter' : 'prey'"
+              [disabled]="!p?.uid || busyRoleUid() === p?.uid"
+              (change)="p?.uid && setRole($any(p?.uid), $any($event.value))">
+              <mat-button-toggle value="hunter" [matTooltip]="'Chasseur'">
+                <mat-icon>shield_person</mat-icon>
+              </mat-button-toggle>
+              <mat-button-toggle value="prey" [matTooltip]="'Proie'">
+                <mat-icon>hiking</mat-icon>
+              </mat-button-toggle>
+            </mat-button-toggle-group>
 
-    <button mat-menu-item (click)="remove2()" matMenuClose>
+            @if (busyRoleUid() === p?.uid) {
+              <mat-progress-spinner mode="indeterminate" diameter="16" class="spinner"></mat-progress-spinner>
+            }
+
+            <!-- Actions -->
+            <button mat-icon-button
+                    [disabled]="!p?.uid"
+                    [matMenuTriggerFor]="playerMenu"
+                    (click)="openMenuFor(p?.uid)"
+                    aria-label="Actions joueur">
+              <mat-icon>more_vert</mat-icon>
+            </button>
+          </div>
+        </a>
+        <mat-divider inset></mat-divider>
+      }
+
+      @if (filteredPlayersSig().length === 0) {
+        <div class="empty">
+          <mat-icon>group_off</mat-icon>
+          <span>Aucun joueur ne correspond.</span>
+        </div>
+      }
+    </mat-nav-list>
+
+    <!-- Menu global -->
+    <mat-menu #playerMenu="matMenu" (closed)="currentUid.set('')">
+      <button mat-menu-item
+              (click)="setRole(currentUid(), 'hunter')"
+              [disabled]="busyRoleUid() === currentUid() || !currentUid()">
+        <mat-icon>shield_person</mat-icon>
+        <span>Définir chasseur</span>
+      </button>
+
+      <button mat-menu-item
+              (click)="setRole(currentUid(), 'prey')"
+              [disabled]="busyRoleUid() === currentUid() || !currentUid()">
+        <mat-icon>hiking</mat-icon>
+        <span>Définir proie</span>
+      </button>
+
+      <mat-divider></mat-divider>
+
+      <button mat-menu-item
+              (click)="copyUid(currentUid())"
+              [disabled]="!currentUid()">
+        <mat-icon>content_copy</mat-icon>
+        <span>Copier l’UID</span>
+      </button>
+
+      <button mat-menu-item (click)="remove2()" matMenuClose>
         <mat-icon color="warn">delete</mat-icon>
         <span class="warn">Retirer</span>
-    </button>
-    <button mat-menu-item (click)="makeOwner(currentUid())">
+      </button>
+
+      <button mat-menu-item
+              (click)="makeOwner(currentUid())"
+              [disabled]="isOwner(currentUid()) || !currentUid()">
         <mat-icon>verified_user</mat-icon>
         <span>Définir comme owner</span>
+      </button>
+    </mat-menu>
+  </mat-card-content>
+    <button mat-stroked-button color="primary"
+            (click)="randomizeAllSpawns()"
+            [disabled]="!roomId()">
+    <mat-icon>shuffle</mat-icon>
+    Spawns aléatoires
     </button>
-</mat-menu>
-
+</mat-card>
 
 
 ────────────────────────────────────────────────────────────
@@ -19703,7 +21304,7 @@ REL:  src\app\sim\players-controls\players-controls.component.scss
   max-width: var(--max-content);
   margin-inline: auto;
     margin-top: 10px;
-    
+
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .seps { opacity: .5; margin: 0 6px; }
   .m12  { margin: 12px 0; }
@@ -19913,6 +21514,23 @@ REL:  src\app\sim\players-controls\players-controls.component.scss
   .spinner { --mdc-circular-progress-active-indicator-width: 2px; }
 }
 
+.is-owner {
+  background: rgba(33,150,243,.06);
+}
+.avatar.is-owner {
+  box-shadow: 0 0 0 2px rgba(33,150,243,.35) inset;
+}
+.owner-badge {
+  display: inline-flex;
+  gap: .25rem;
+  margin-left: .5rem;
+  padding: 0 .4rem;
+  border-radius: 6px;
+  font-size: .75rem;
+  line-height: 1.4;
+  background: rgba(33,150,243,.15);
+}
+
 
 ────────────────────────────────────────────────────────────
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\players-controls\players-controls.component.ts
@@ -19921,7 +21539,7 @@ REL:  src\app\sim\players-controls\players-controls.component.ts
 import {
   Component, ChangeDetectionStrategy, inject, input, signal, computed
 } from '@angular/core';
-import { AsyncPipe, JsonPipe, NgFor, NgIf, TitleCasePipe } from '@angular/common';
+import { AsyncPipe, JsonPipe, NgClass, NgFor, NgIf, TitleCasePipe } from '@angular/common';
 
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -19946,8 +21564,15 @@ import { MonitorActionsService } from '../../services/monitor-actions.service';
 import { PlayerDoc } from '../../models/monitor.models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
+// ⬇️ NEW: Firestore direct pour lire ownerUid si besoin
+import { Firestore, doc, docData } from '@angular/fire/firestore';
+import { of } from 'rxjs';
+
 type RoleSimple = 'hunter' | 'prey';
 type SortKey = 'none' | 'role' | 'name';
+type BotLocal = { id: string; x:number; y:number; h:number|null };
+type World = { minX:number; maxX:number; minY:number; maxY:number };
+
 @Component({
   selector: 'app-players-controls',
   standalone: true,
@@ -19959,33 +21584,42 @@ type SortKey = 'none' | 'role' | 'name';
     MatCardModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatButtonModule, MatIconModule, MatChipsModule, MatDividerModule,
     MatListModule, MatTooltipModule, MatButtonToggleModule,
-    MatMenuModule, MatBadgeModule, MatProgressSpinnerModule,JsonPipe
+    MatMenuModule, MatBadgeModule, MatProgressSpinnerModule, JsonPipe, NgClass
   ],
   templateUrl: './players-controls.component.html',
   styleUrls: ['./players-controls.component.scss'],
 })
 export class PlayersControlsComponent {
+
+    worldSig = signal<World>({ minX:-45, maxX:45, minY:-30, maxY:30 });
+
+
+    
   /** Room ciblée */
   roomId = input<string>('');
-snack = inject(MatSnackBar);
+  snack = inject(MatSnackBar);
+
   // Formulaire "ajout joueur"
   displayName = signal<string>('');
   role = signal<RoleSimple>('prey');
 
   // Filtres / tri pour la liste
-  query = signal<string>('');                       // recherche texte
-  sortBy = signal<SortKey>('none');         // tri: rôle ou alphabétique
+  query = signal<string>('');                 // recherche texte
+  sortBy = signal<SortKey>('none');           // tri: rôle ou alphabétique
 
   // UI states
   busyAdd = signal<boolean>(false);
   busyRoleUid = signal<string | null>(null);
   busyRemoveUid = signal<string | null>(null);
 
-currentUid = signal<string>('');
-openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
+  currentUid = signal<string>('');
+  openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
 
   private read = inject(MonitorReadService);
   private act = inject(MonitorActionsService);
+
+  // ⬇️ NEW: Firestore direct pour lire la room.ownerUid
+  private fs = inject(Firestore);
 
   /** Flux des joueurs de la room */
   readonly playersSig = toSignal(
@@ -19993,11 +21627,30 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
       switchMap(id => this.read.players$(id || '')),
       map(list => (list ?? []) as PlayerDoc[])
     ),
-    {
-      initialValue: [] as PlayerDoc[],
-      requireSync: false, // désambiguïe l'overload async de toSignal
-    }
+    { initialValue: [] as PlayerDoc[], requireSync: false }
   );
+
+  // ⬇️ NEW: ownerUid de la room (source de vérité)
+  readonly ownerUidSig = toSignal(
+    toObservable(this.roomId).pipe(
+      switchMap(id => id
+        ? docData(doc(this.fs, 'rooms', id))
+        : of(null)
+      ),
+      map((room: any) => (room?.ownerUid as string | undefined) ?? '')
+    ),
+    { initialValue: '' }
+  );
+
+    botsSig = computed<BotLocal[]>(() => {
+        const arr = this.playersSig();
+        return arr.map(p => ({
+            id: p.uid!,
+            x: (p.spawn?.x ?? 0),
+            y: (p.spawn?.y ?? 0),
+            h: null,
+        }));
+    });
 
   /** Liste filtrée + triée (utilisée par le template) */
   readonly filteredPlayersSig = computed(() => {
@@ -20007,26 +21660,26 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     let arr = [...this.playersSig()].filter(Boolean);
 
     if (q) {
-        arr = arr.filter(p => {
+      arr = arr.filter(p => {
         const hay = `${p.displayName ?? ''} ${p.uid ?? ''}`.toLowerCase();
         return hay.includes(q);
-        });
+      });
     }
 
     if (sort === 'role') {
-        arr.sort((a, b) => {
+      arr.sort((a, b) => {
         const ah = this.isHunter(a) ? 0 : 1;
         const bh = this.isHunter(b) ? 0 : 1;
         if (ah !== bh) return ah - bh;
         return (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? '');
-        });
+      });
     } else if (sort === 'name') {
-        arr.sort((a, b) => (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? ''));
+      arr.sort((a, b) => (a.displayName ?? a.uid ?? '').localeCompare(b.displayName ?? b.uid ?? ''));
     }
-    // sort === 'none' → pas de tri, on garde l’ordre d’origine
+    // sort === 'none' → pas de tri
 
     return arr;
-    });
+  });
 
   /** Petits compteurs pour l’en-tête */
   readonly counts = computed(() => {
@@ -20067,61 +21720,82 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     }
   }
 
-    async remove(uid?: string): Promise<void> {
+    async randomizeAllSpawns(): Promise<void> {
         const roomId = (this.roomId() || '').trim();
-        const target = (uid ?? this.currentUid()).trim();
-
         if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
-        if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
-        if (!confirm('Retirer ce joueur ?')) return;
-
-        this.busyRemoveUid.set(target);
         try {
-            await this.act.removePlayer(roomId, target);
-            this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
-        } catch (e: any) {
-            console.error('remove failed', e);
+            await this.act.randomizeSpawns(roomId, this.worldSig(), { minGap: 4 }); // ajuste minGap si besoin
+            this.snack.open('Spawns attribués', 'OK', { duration: 1800 });
+        } catch (e:any) {
+            console.error(e);
             this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
-        } finally {
-            this.busyRemoveUid.set(null);
-            this.currentUid.set('');
         }
     }
 
-    async remove2(uid?: string): Promise<void> {
-        const roomId = (this.roomId() || '').trim();
-        const target = (uid ?? this.currentUid()).trim();
+  async remove(uid?: string): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    const target = (uid ?? this.currentUid()).trim();
 
-        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
-        if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
-        if (!confirm('Retirer ce joueur ?')) return;
+    if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+    if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
+    if (!confirm('Retirer ce joueur ?')) return;
 
-        this.busyRemoveUid.set(target);
-        try {
-            // 👉 Appel admin à la callable removePlayer (Cloud Functions)
-            await this.act.removePlayerAdmin(roomId, target);
-
-            this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
-        } catch (e: any) {
-            // e est un Firebase HttpsError côté client
-            const code = e?.code as string | undefined; // p.ex. 'permission-denied', 'not-found'
-            const msg  = code === 'permission-denied'
-            ? 'Accès refusé (admin/owner requis).'
-            : code === 'not-found'
-                ? 'Salle introuvable.'
-                : (e?.message ?? e);
-
-            console.error('remove failed', code, e);
-            this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
-        } finally {
-            this.busyRemoveUid.set(null);
-            this.currentUid.set('');
-        }
+    this.busyRemoveUid.set(target);
+    try {
+      await this.act.removePlayer(roomId, target); // version callable côté service (admin)
+      this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
+    } catch (e: any) {
+      console.error('remove failed', e);
+      const code = e?.code as string | undefined;
+      const msg  = code === 'permission-denied'
+        ? 'Accès refusé (admin/owner requis).'
+        : code === 'not-found'
+          ? 'Salle introuvable.'
+          : (e?.message ?? e);
+      this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
+    } finally {
+      this.busyRemoveUid.set(null);
+      this.currentUid.set('');
     }
+  }
 
+  // (Tu peux supprimer remove2 si inutile, sinon garde-la comme alias admin)
+  async remove2(uid?: string): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    const target = (uid ?? this.currentUid()).trim();
+
+    if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+    if (!target) { this.snack.open('UID invalide', 'OK', { duration: 2000 }); return; }
+    if (!confirm('Retirer ce joueur ?')) return;
+
+    this.busyRemoveUid.set(target);
+    try {
+      await this.act.removePlayerAdmin(roomId, target);
+      this.snack.open('Joueur retiré', 'OK', { duration: 1800 });
+    } catch (e: any) {
+      const code = e?.code as string | undefined;
+      const msg  = code === 'permission-denied'
+        ? 'Accès refusé (admin/owner requis).'
+        : code === 'not-found'
+          ? 'Salle introuvable.'
+          : (e?.message ?? e);
+      console.error('remove failed', code, e);
+      this.snack.open(`Échec: ${msg}`, 'OK', { duration: 3500 });
+    } finally {
+      this.busyRemoveUid.set(null);
+      this.currentUid.set('');
+    }
+  }
 
   // Utils
   isHunter(p: any) { return normRole(p?.role) === 'hunter'; }
+
+  // ⬇️ NEW: savoir si un uid est owner de la room
+  isOwner(uid?: string) {
+    const o = this.ownerUidSig();
+    return !!uid && !!o && uid === o;
+  }
+
   initials(name?: string, fallback = '??') {
     const s = (name ?? '').trim();
     if (!s) return fallback;
@@ -20129,37 +21803,34 @@ openMenuFor(uid?: string) { this.currentUid.set(uid ?? ''); }
     return parts.join('') || fallback;
   }
 
-
-    copyUid(uid?: string) {
+  copyUid(uid?: string) {
     const v = uid ?? this.currentUid();
     if (!v) return;
     navigator.clipboard?.writeText(v).catch(() => {});
-    }
-  
-    async makeOwner(uid: string): Promise<void> {
-        const roomId = (this.roomId() || '').trim();
-        if (!roomId || !uid) { this.snack.open('Paramètres manquants', 'OK', { duration: 2000 }); return; }
-        if (!confirm('Définir ce joueur comme propriétaire de la room ?')) return;
+  }
 
-        this.busyRoleUid.set(uid);
-        try {
-            await this.act.setRoomOwner(roomId, uid);
-            this.snack.open('Owner mis à jour', 'OK', { duration: 1800 });
-        } catch (e: any) {
-            console.error('set owner failed', e);
-            this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
-        } finally {
-            this.busyRoleUid.set(null);
-        }
-    }
+  async makeOwner(uid: string): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    if (!roomId || !uid) { this.snack.open('Paramètres manquants', 'OK', { duration: 2000 }); return; }
+    if (!confirm('Définir ce joueur comme propriétaire de la room ?')) return;
 
+    this.busyRoleUid.set(uid);
+    try {
+      await this.act.setRoomOwner(roomId, uid);
+      this.snack.open('Owner mis à jour', 'OK', { duration: 1800 });
+    } catch (e: any) {
+      console.error('set owner failed', e);
+      this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
+    } finally {
+      this.busyRoleUid.set(null);
+    }
+  }
 }
 
 function normRole(r?: any): RoleSimple {
   const v = String(r ?? '').toLowerCase().trim();
   return v === 'hunter' || v === 'chasseur' ? 'hunter' : 'prey';
 }
-
 
 
 ────────────────────────────────────────────────────────────
@@ -20561,6 +22232,28 @@ REL:  src\app\sim\simulator\match-simulator.component.html
       </app-room-input>
       
  <mat-divider class="m12"></mat-divider>
+
+    <div class="match-state">
+        <mat-chip-set>
+          <mat-chip [color]="statusSig().color" selected>
+            <mat-icon inline>
+              {{ statusSig().state === 'running' ? 'play_circle' : (statusSig().state === 'idle' ? 'schedule' : 'flag') }}
+            </mat-icon>
+            {{ statusSig().label }}
+          </mat-chip>
+          @if (statusSig().state === 'running' && statusSig().leftMs != null) {
+            <mat-chip>⏱ {{ fmtTime(statusSig().leftMs) }}</mat-chip>
+          }
+        </mat-chip-set>
+
+        @if (statusSig().state === 'running' && statusSig().progress01 != null) {
+          <mat-progress-bar
+            mode="determinate"
+            [value]="(statusSig().progress01 ?? 0) * 100">
+          </mat-progress-bar>
+        }
+      </div>
+
   <app-players-controls [roomId]="roomId()"></app-players-controls>
 
       <!-- 2) Bots -->
@@ -20570,9 +22263,7 @@ REL:  src\app\sim\simulator\match-simulator.component.html
         [speed]="speed()"
         (speedChange)="speed.set($event)"
         [displayMs]="displayMs"
-        (spawn)="spawnBots()"
-        (start)="start()"
-        (stop)="stop()">
+        (spawn)="spawnBots()">
       </app-bots-controls>
 
       <!-- 3) TAG -->
@@ -20584,12 +22275,26 @@ REL:  src\app\sim\simulator\match-simulator.component.html
           (simulate)="simulateTag(dots)">
         </app-tag-controls>
       }
+<div class="actions-row" style="display:flex; gap:8px; align-items:center; margin:12px 0;">
+  <button mat-flat-button color="primary" (click)="start()">
+    <mat-icon>play_arrow</mat-icon>
+    Démarrer
+  </button>
 
-      <!-- 4) Canvas -->
-      <app-field-canvas
-        [world]="{ minX:-45,maxX:45,minY:-30,maxY:30 }"
-        [bots]="bots()">
-      </app-field-canvas>
+  <button mat-stroked-button color="warn" (click)="stop()">
+    <mat-icon>stop</mat-icon>
+    Terminer
+  </button>
+</div>
+         <!-- 4) Canvas -->
+    <app-field-canvas
+    [roomId]="roomId()"
+    [world]="{ minX:-45, maxX:45, minY:-30, maxY:30 }">
+  </app-field-canvas>
+
+    <app-numeric-positions [roomId]="roomId()"></app-numeric-positions>
+<app-sim-event-feed [roomId]="roomId()"></app-sim-event-feed>
+
     }
 
   </mat-card-content>
@@ -20600,7 +22305,8 @@ REL:  src\app\sim\simulator\match-simulator.component.html
 FILE: C:\Users\malri\tag-cartesien-monitor\src\app\sim\simulator\match-simulator.component.ts
 REL:  src\app\sim\simulator\match-simulator.component.ts
 ────────────────────────────────────────────────────────────
-import { Component, ChangeDetectionStrategy, inject, Injector, signal, effect } from '@angular/core';
+// src/app/sim/match-simulator/match-simulator.component.ts
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { AsyncPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
@@ -20613,22 +22319,15 @@ import { BotsControlsComponent } from '../../sim/bots-controls/bots-controls.com
 import { TagControlsComponent } from '../../sim/tag-controls/tag-controls.component';
 import { FieldCanvasComponent } from '../../sim/field-canvas/field-canvas.component';
 import { RoomSelectComponent } from '../../sim/room-select/room-select.component';
-
-import { toObservable } from '@angular/core/rxjs-interop';
-import { Observable } from 'rxjs';
-import { distinctUntilChanged, map, switchMap, filter } from 'rxjs/operators';
-
-import { Database, ref, update } from '@angular/fire/database';
-import { Auth } from '@angular/fire/auth';
-
-import { PositionsService } from '../../services/positions.service';
-import { BotService } from '../../services/bot.service';
-import { RtdbPositionsService } from '../../services/rtdb-positions.service';
-import { MonitorActionsService } from '../../services/monitor-actions.service';
 import { PlayersControlsComponent } from '../players-controls/players-controls.component';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatIcon } from '@angular/material/icon';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { NumericPositionsComponent } from '../numeric-positions/numeric-positions.component';
+import { EventFeedComponent } from '../event-feed/event-feed.component';
 
-export type BotLocal = { id: string; x: number; y: number; h: number | null };
-export type DotDTO = { x: number; y: number; uid?: string };
+import { MatchSimStore } from '../match-sim.store';
+import { displayMs, fmtTime, normalizeRole } from '../match-sim.utils';
 
 @Component({
   selector: 'app-match-simulator',
@@ -20639,150 +22338,42 @@ export type DotDTO = { x: number; y: number; uid?: string };
     MatCardModule, MatSnackBarModule, MatDividerModule,
     RoomInputComponent, CreateRoomComponent,
     BotsControlsComponent, TagControlsComponent, FieldCanvasComponent,
-    RoomSelectComponent, PlayersControlsComponent
+    RoomSelectComponent, PlayersControlsComponent, MatChipsModule,
+    MatIcon, MatProgressBarModule, NumericPositionsComponent, EventFeedComponent
   ],
   templateUrl: './match-simulator.component.html',
   styleUrls: ['./match-simulator.component.css'],
 })
 export class MatchSimulatorComponent {
-  private injector = inject(Injector);
-  private db = inject(Database);
-  private positions = inject(PositionsService);
-  private route = inject(ActivatedRoute);
-  private botService = inject(BotService);
+  // Store (toute la logique/état)
+  readonly store = inject(MatchSimStore);
 
-  // nouveaux services
-  private rtdbPos = inject(RtdbPositionsService);
-  private actions = inject(MonitorActionsService);
-  private auth = inject(Auth);
+  // Helpers utilisés en template (on les ré-exporte)
+  readonly displayMs = displayMs;
+  readonly fmtTime = fmtTime;
+  readonly normalizeRole = normalizeRole;
 
-  // utils
-  displayMs = (v: number | null): string => `${v ?? 0} ms`;
+  // Facilité d’accès dans le template (syntaxe lisible)
+  readonly newRoomName = this.store.newRoomName;
+  readonly roomId = this.store.roomId;
+  readonly nbBots = this.store.nbBots;
+  readonly speed = this.store.speed;
+  readonly victimUid = this.store.victimUid;
+  readonly bots = this.store.bots;
+  readonly phaseSig = this.store.phaseSig;
+  readonly gameStarted = this.store.gameStarted;
+  readonly roomDocSig = this.store.roomDocSig;
+  readonly statusSig = this.store.statusSig;
+  readonly dots$ = this.store.dots$;
 
-  newRoomName = signal<string>('');
-  roomId = signal<string>('');
-  nbBots = signal<number>(6);
-  speed = signal<number>(300);
-  victimUid = signal<string | null>(null);
-  bots = signal<BotLocal[]>([]);
-
-  constructor() {
-    effect(() => {
-      const id = this.route.snapshot.paramMap.get('id');
-      if (id) this.roomId.set(id);
-    });
-  }
-
-  dots$: Observable<DotDTO[]> = toObservable(this.roomId).pipe(
-    map(id => (id ?? '').trim()),
-    distinctUntilChanged(),
-    filter(id => !!id.length),
-    switchMap(id => this.rtdbPos.liveMap$(id) as Observable<DotDTO[]>),
-  );
-
-  async createRoomAndUseIt(): Promise<void> {
-    const name = this.newRoomName().trim();
-    if (!name) { this.botService.toast('Donne un nom de room'); return; }
-    const ownerUid = this.auth.currentUser?.uid;
-    if (!ownerUid) { this.botService.toast('Connecte-toi pour créer une room'); return; }
-
-    try {
-      const { roomId, name: finalName } = await this.actions.createRoomWithOwner(name, ownerUid);
-      this.roomId.set(roomId);
-      this.listen();
-      this.botService.toast(`Room “${finalName}” créée (id: ${roomId.slice(0, 6)}…)`);
-    } catch (e: any) {
-      this.botService.toast(`Création échouée : ${e?.message ?? e}`);
-    }
-  }
-
-  listen(): void {
-    const id = this.roomId().trim();
-    if (!id) return this.botService.toast('Entre un Room ID');
-    this.positions.startListening(id);
-  }
-
-  unlisten(): void {
-    this.positions.stop();
-  }
-
-  // Optionnel : normalise en valeurs attendues par les règles
-  normalizeRole(role: string): 'hunter' | 'chasseur' | 'prey' | 'proie' {
-    const r = (role ?? '').toLowerCase().trim();
-    if (r === 'hunter' || r === 'chasseur') return (r as any);
-    if (r === 'prey' || r === 'proie') return (r as any);
-    // fallback utile : tout ce qui n'est pas hunter/chasseur => proie
-    return 'prey';
-  }
-
-  /**
-   * Spawn N bots et leur **assigne un rôle** :
-   * - RTDB: /bots/{roomId}/{botId} (x,y,t,name,role,type)
-   * - Firestore: /rooms/{roomId}/players/{botId} + rooms/{roomId}.roles[botId]
-   * Compatible avec tes règles (owner requis pour MAJ room.roles).
-   */
-  async spawnBots(role: string = 'prey'): Promise<void> {
-    await this.botService.spawnBots(this.roomId(), role, this.nbBots(), this.bots);
-  }
-
-  start(): void {
-    const id = this.roomId().trim();
-    if (!id) return this.botService.toast('Room ID manquant');
-
-    const bots = this.bots();
-    if (!bots.length) return this.botService.toast('Spawn des bots d’abord');
-
-    const tick = Math.max(80, this.speed());
-    const WORLD = { minX: -45, maxX: 45, minY: -30, maxY: 30 };
-
-    for (let i = 0; i < bots.length; i++) {
-      if (bots[i].h != null) continue;
-      const h = window.setInterval(async () => {
-        bots[i].x = this.botService.clamp(bots[i].x + this.botService.rnd(-1, 1), WORLD.minX, WORLD.maxX);
-        bots[i].y = this.botService.clamp(bots[i].y + this.botService.rnd(-1, 1), WORLD.minY, WORLD.maxY);
-        await update(ref(this.db, `bots/${id}/${bots[i].id}`), {
-          x: bots[i].x, y: bots[i].y, t: Date.now(),
-        });
-      }, tick + ((i % 3) * 70));
-      bots[i] = { ...bots[i], h };
-    }
-
-    this.bots.set([...bots]);
-    this.botService.toast('Mouvements démarrés');
-  }
-
-  stop(): void {
-    const bots = this.bots();
-    bots.forEach(b => {
-      if (b.h != null) {
-        clearInterval(b.h);
-        b.h = null;
-      }
-    });
-    this.bots.set([...bots]);
-    this.botService.toast('Mouvements stoppés');
-  }
-
-  async simulateTag(dots: DotDTO[]): Promise<void> {
-    const id = this.roomId().trim();
-    if (!id) return this.botService.toast('Room ID manquant');
-    if (!dots?.length) return this.botService.toast('Pas de cibles');
-
-    const victim = this.victimUid() || dots[0].uid;
-    const target = victim ? dots.find(d => d.uid === victim) : undefined;
-    if (!target || !target.uid) return this.botService.toast('Cible invalide');
-
-    // Acteur = utilisateur courant (comme avant avec MatchService)
-    const actorUid = this.auth.currentUser?.uid;
-    if (!actorUid) { this.botService.toast('Connecte-toi pour émettre un TAG'); return; }
-
-    try {
-      await this.actions.emitTag(id, actorUid, target.uid, target.x, target.y);
-      this.botService.toast(`TAG → ${target.uid.slice(0, 6)}…`);
-    } catch (e: any) {
-      this.botService.toast(`TAG refusé : ${e?.message ?? e}`);
-    }
-  }
+  // Actions déléguées
+  createRoomAndUseIt = () => this.store.createRoomAndUseIt();
+  listen = () => this.store.listen();
+  unlisten = () => this.store.unlisten();
+  spawnBots = (role?: string) => this.store.spawnBots(role);
+  start = () => this.store.start();
+  stop = () => this.store.stop();
+  simulateTag = (dots: any[]) => this.store.simulateTag(dots);
 }
 
 
