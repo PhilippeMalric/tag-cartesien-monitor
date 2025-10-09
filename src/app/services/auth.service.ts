@@ -22,6 +22,8 @@ export class AuthService {
       }
       this.uid.set(u.uid);
       const token = await u.getIdTokenResult();
+      console.log('Token claims:', token.claims);
+      
       this.isAdmin.set(!!token.claims['admin']);
     });
   }

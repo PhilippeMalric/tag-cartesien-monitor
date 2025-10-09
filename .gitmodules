@@ -1,0 +1,3 @@
+[submodule "external/tag-cartesien"]
+	path = external/tag-cartesien
+	url = https://github.com/PhilippeMalric/tag-cartesien.git
