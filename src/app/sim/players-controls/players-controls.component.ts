@@ -21,12 +21,14 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { map, switchMap } from 'rxjs/operators';
-import { MonitorReadService } from '../../services/monitor-read.service';
+import { MonitorReadService, PlayerX } from '../../services/monitor-read.service';
 import { MonitorActionsService } from '../../services/monitor-actions.service';
-import { PlayerDoc } from '../../models/monitor.models';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
-// ⬇️ NEW: Firestore direct pour lire ownerUid si besoin
+// Types partagés
+import type { PlayerDoc, Position, Role } from '@tag/types';
+
+// Firestore direct pour lire ownerUid si besoin
 import { Firestore, doc, docData } from '@angular/fire/firestore';
 import { of } from 'rxjs';
 
@@ -34,6 +36,8 @@ type RoleSimple = 'hunter' | 'prey';
 type SortKey = 'none' | 'role' | 'name';
 type BotLocal = { id: string; x:number; y:number; h:number|null };
 type World = { minX:number; maxX:number; minY:number; maxY:number };
+
+
 
 @Component({
   selector: 'app-players-controls',
@@ -53,10 +57,8 @@ type World = { minX:number; maxX:number; minY:number; maxY:number };
 })
 export class PlayersControlsComponent {
 
-    worldSig = signal<World>({ minX:-45, maxX:45, minY:-30, maxY:30 });
+  worldSig = signal<World>({ minX:-45, maxX:45, minY:-30, maxY:30 });
 
-
-    
   /** Room ciblée */
   roomId = input<string>('');
   snack = inject(MatSnackBar);
@@ -80,19 +82,19 @@ export class PlayersControlsComponent {
   private read = inject(MonitorReadService);
   private act = inject(MonitorActionsService);
 
-  // ⬇️ NEW: Firestore direct pour lire la room.ownerUid
+  // Firestore direct pour lire la room.ownerUid
   private fs = inject(Firestore);
 
   /** Flux des joueurs de la room */
   readonly playersSig = toSignal(
     toObservable(this.roomId).pipe(
       switchMap(id => this.read.players$(id || '')),
-      map(list => (list ?? []) as PlayerDoc[])
+      map(list => (list ?? []) as PlayerX[])
     ),
-    { initialValue: [] as PlayerDoc[], requireSync: false }
+    { initialValue: [] as PlayerX[], requireSync: false }
   );
 
-  // ⬇️ NEW: ownerUid de la room (source de vérité)
+  /** ownerUid de la room (source de vérité) */
   readonly ownerUidSig = toSignal(
     toObservable(this.roomId).pipe(
       switchMap(id => id
@@ -104,15 +106,15 @@ export class PlayersControlsComponent {
     { initialValue: '' }
   );
 
-    botsSig = computed<BotLocal[]>(() => {
-        const arr = this.playersSig();
-        return arr.map(p => ({
-            id: p.uid!,
-            x: (p.spawn?.x ?? 0),
-            y: (p.spawn?.y ?? 0),
-            h: null,
-        }));
-    });
+  botsSig = computed<BotLocal[]>(() => {
+    const arr = this.playersSig();
+    return arr.map(p => ({
+      id: p.uid!,
+      x: (p.spawn?.x ?? 0),
+      y: (p.spawn?.y ?? 0),
+      h: null,
+    }));
+  });
 
   /** Liste filtrée + triée (utilisée par le template) */
   readonly filteredPlayersSig = computed(() => {
@@ -182,17 +184,17 @@ export class PlayersControlsComponent {
     }
   }
 
-    async randomizeAllSpawns(): Promise<void> {
-        const roomId = (this.roomId() || '').trim();
-        if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
-        try {
-            await this.act.randomizeSpawns(roomId, this.worldSig(), { minGap: 4 }); // ajuste minGap si besoin
-            this.snack.open('Spawns attribués', 'OK', { duration: 1800 });
-        } catch (e:any) {
-            console.error(e);
-            this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
-        }
+  async randomizeAllSpawns(): Promise<void> {
+    const roomId = (this.roomId() || '').trim();
+    if (!roomId) { this.snack.open('Room ID manquant', 'OK', { duration: 2000 }); return; }
+    try {
+      await this.act.randomizeSpawns(roomId, this.worldSig(), { minGap: 4 }); // ajuste minGap si besoin
+      this.snack.open('Spawns attribués', 'OK', { duration: 1800 });
+    } catch (e:any) {
+      console.error(e);
+      this.snack.open(`Échec: ${e?.message ?? e}`, 'OK', { duration: 3500 });
     }
+  }
 
   async remove(uid?: string): Promise<void> {
     const roomId = (this.roomId() || '').trim();
@@ -221,7 +223,7 @@ export class PlayersControlsComponent {
     }
   }
 
-  // (Tu peux supprimer remove2 si inutile, sinon garde-la comme alias admin)
+  // (alias admin si utile)
   async remove2(uid?: string): Promise<void> {
     const roomId = (this.roomId() || '').trim();
     const target = (uid ?? this.currentUid()).trim();
@@ -252,7 +254,7 @@ export class PlayersControlsComponent {
   // Utils
   isHunter(p: any) { return normRole(p?.role) === 'hunter'; }
 
-  // ⬇️ NEW: savoir si un uid est owner de la room
+  // savoir si un uid est owner de la room
   isOwner(uid?: string) {
     const o = this.ownerUidSig();
     return !!uid && !!o && uid === o;

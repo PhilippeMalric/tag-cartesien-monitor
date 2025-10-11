@@ -60,7 +60,7 @@
         <mat-button-toggle value="name"><mat-icon>sort_by_alpha</mat-icon> Nom</mat-button-toggle>
       </mat-button-toggle-group>
     </div>
-  
+
     <!-- Liste améliorée -->
     <mat-nav-list class="list list--compact">
       @for (p of filteredPlayersSig(); track $index) {
@@ -95,9 +95,12 @@
               <mat-icon class="role-ico" [matTooltip]="isHunter(p) ? 'Chasseur' : 'Proie'">
                 {{ isHunter(p) ? 'shield_person' : 'hiking' }}
               </mat-icon>
-              @if (p?.score !== undefined) {
-                <span class="pill" aria-label="score">S: {{ p?.score }}</span>
+
+              <!-- score: usage via $any(p) pour satisfaire le type-checker -->
+              @if ($any(p)?.score !== undefined) {
+                <span class="pill" aria-label="score">S: {{ $any(p)?.score }}</span>
               }
+
               <span class="uid mono" [matTooltip]="p?.uid || '—'">
                 #{{ (p?.uid || '').slice(0,6) }}
               </span>
@@ -180,10 +183,11 @@
       </button>
     </mat-menu>
   </mat-card-content>
-    <button mat-stroked-button color="primary"
-            (click)="randomizeAllSpawns()"
-            [disabled]="!roomId()">
+
+  <button mat-stroked-button color="primary"
+          (click)="randomizeAllSpawns()"
+          [disabled]="!roomId()">
     <mat-icon>shuffle</mat-icon>
     Spawns aléatoires
-    </button>
+  </button>
 </mat-card>

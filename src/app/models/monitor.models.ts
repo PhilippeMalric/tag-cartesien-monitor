@@ -1,70 +1,50 @@
-// Types globaux pour le monitor + alias d'observables
+import { Position, Role } from '@tag/types';
 
+import type { EventType } from '@tag/types';
 import { Observable } from 'rxjs';
 
-export type GameMode = 'classic' | 'transmission' | 'infection';
-export type RoomState = 'idle' | 'running' | 'stopped';
-export type Role =
-  | 'hunter' | 'runner' | 'bot'   // anglais (legacy monitor)
-  | 'chasseur' | 'chassé';         // français (legacy play)
+export type {
+  GameMode,
+  Role,
+  RoomDoc,
+  PlayerDoc,
+  Position,
+  EventItem,
+} from '@tag/types';
 
-// Normalisation simple pour les actions d'admin (monitor-actions)
-export type RoleSimple = 'hunter' | 'prey';
-
-export interface RoomDoc {
-  id?: string;
-  ownerUid?: string;
-  state?: RoomState | 'in-progress';
-  mode?: GameMode | string;
-  roles?: Record<string, Role | undefined>;
-  lastEventAt?: any;  // Firestore Timestamp | Date | number
-  updatedAt?: any;
-  name?: string;
-  // autres champs éventuels...
-}
-
-export interface EventItem {
-   id?: string;
-  type: 'tag';
-  hunterUid: string;
-  victimUid: string;
-  x?: number;
-  y?: number;
-  ts?: any;
-}
-
-export interface PlayerDoc {
-  uid?: string;
-  displayName?: string;
-  role?: Role;
-  ready?: boolean;
-  score?: number;
-  spawn?: { x: number; y: number };
-}
-
-export interface PosDTO {
-  uid?: string;
-  x: number;
-  y: number;
-  role?: Role;
-}
+// DTO d’affichage si tu en as besoin dans l’UI
+export type PosDTO = Position & { uid?: string; role?: Role };
 
 export interface DailyStats {
+  /** Nombre total de tags (type 'tag/hit') sur la journée. */
   tagsTotal: number;
+
+  /** Nombre total de rooms, en cours, et à l'arrêt. */
   roomsTotal: number;
   roomsRunning: number;
   roomsIdle: number;
-  lastEventAt?: any;
+
+  /** Horodatage du dernier événement observé (Timestamp/Date/ISO/ms). */
+  lastEventAt?: unknown;
+
+  /** (Optionnel) Détail par type d’événement si tu veux l’ajouter plus tard. */
+  byType?: Partial<Record<EventType, number>>;
+
+  /** (Optionnel) Total agrégé tous types. */
+  total?: number;
 }
 
-// Flux alias pratiques
-export type RoomsStream     = Observable<RoomDoc[]>;
-export type RoomStream      = Observable<RoomDoc | null>;
-export type PlayersStream   = Observable<PlayerDoc[]>;
-export type EventsStream    = Observable<EventItem[]>;
-export type PositionsStream = Observable<PosDTO[]>;
-export type LiveMapStream   = Observable<PosDTO[]>;
 
-// Actions
-export type CreateRoomResult = { roomId: string; name: string; ownerUid: string; guestUid?: string };
-export type AddPlayerInput   = { uid?: string; displayName: string; role?: RoleSimple };
+export type LiveMapPoint = Position & { uid?: string; role?: Role };
+export type LiveMapSnapshot = LiveMapPoint[];
+export type LiveMapStream = Observable<LiveMapSnapshot>;
+
+// Types utilitaires pour les actions/returns
+export type RoleSimple = 'hunter' | 'prey';
+
+export interface CreateRoomResult {
+  roomId: string;
+  name: string;
+  ownerUid: string;
+  guestUid: string;
+}

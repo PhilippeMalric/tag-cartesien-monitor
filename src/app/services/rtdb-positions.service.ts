@@ -1,10 +1,13 @@
 import { Injectable, inject } from '@angular/core';
 import { Database, ref as rtdbRef } from '@angular/fire/database';
 import { objectVal } from 'rxfire/database';
-import { map, shareReplay } from 'rxjs';
-import { LiveMapStream, PositionsStream, PosDTO } from '../models/monitor.models';
+import { Observable, map, shareReplay } from 'rxjs';
+import { LiveMapStream, PosDTO } from '../models/monitor.models';
 
 const isDefined = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
+
+// ⬅️ Ajout : alias local si non exporté par monitor.models
+type PositionsStream = Observable<PosDTO[]>;
 
 @Injectable({ providedIn: 'root' })
 export class RtdbPositionsService {
@@ -16,7 +19,7 @@ export class RtdbPositionsService {
       map(obj => {
         if (!obj) return [] as PosDTO[];
         return Object.entries(obj)
-          .filter(([, v]) => isDefined(v) && isFinite(v.x) && isFinite(v.y))
+          .filter(([, v]) => isDefined(v) && Number.isFinite(v.x) && Number.isFinite(v.y))
           .map(([uid, v]) => ({ uid, x: v.x, y: v.y } as PosDTO));
       }),
       shareReplay({ bufferSize: 1, refCount: true })

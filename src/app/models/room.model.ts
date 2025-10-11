@@ -1,29 +1,12 @@
-// Modèle MONITOR (pas celui du jeu)
-export type GameMode = 'classic' | 'transmission' | 'infection';
+import { RoomDoc } from '@tag/types';
 
-export type RoomState = 'idle' | 'running' | 'in-progress' | 'ended';
+export type { GameMode, RoomDoc, Role, RolesMap } from '@tag/types';
 
-export interface RoomDoc {
-  id?: string;
-  ownerUid: string;
-  state: RoomState;
-  mode: GameMode;
-  targetScore?: number;   // utilisé pour classic
-  timeLimit?: number;     // optionnel (secondes)
-  players?: number;
-  createdAt?: any;
-  updatedAt?: any;
-  roles:any[];
-  roundEndAtMs?:any
-  hunterUid?:string;
-  name?: string;
-  lastEventAt?: any;  // Timestamp
+// Optionnel : ViewModel UI spécifique à l’app (exemple)
+export interface RoomVM {
+  id: string;
+  doc: RoomDoc;
+  lastEventAt?: Date | null;
 }
 
-export type RoomVM = RoomDoc & {
-  id: string;
-  /** lastEventAt converti en Date (pour |date) */
-  lastEventAt?: Date | null;
-  /** uids dérivés pour l’affichage */
-    uids: string[];
-};
+export type RoomWithId = RoomDoc & { id: string };

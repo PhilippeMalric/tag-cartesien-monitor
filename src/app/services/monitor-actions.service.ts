@@ -5,7 +5,7 @@ import {
 } from '@angular/fire/firestore';
 
 import {
-  AddPlayerInput, CreateRoomResult, RoleSimple
+   CreateRoomResult, RoleSimple
 } from '../models/monitor.models';
 import { httpsCallable } from 'firebase/functions';
 import { Functions } from '@angular/fire/functions';

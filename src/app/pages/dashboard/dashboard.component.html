@@ -1,0 +1,155 @@
+<section class="dashboard-dark">
+  <div class="grid">
+
+    <!-- Carte: Stat du jour -->
+    <mat-card class="card metric" appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>
+          <mat-icon aria-hidden="true">military_tech</mat-icon>
+          Total tags (aujourd'hui)
+        </mat-card-title>
+      </mat-card-header>
+
+      <mat-card-content>
+        <div class="metric-value">
+          {{ (daily$ | async)?.tagsTotal ?? 0 }}
+        </div>
+        <div class="metric-sub">
+          <mat-chip-set>
+            <mat-chip color="primary" selected>
+              <mat-icon inline>query_stats</mat-icon>
+              activité journalière
+            </mat-chip>
+          </mat-chip-set>
+        </div>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Carte: Rooms -->
+    <mat-card class="card rooms" appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>
+          <mat-icon aria-hidden="true">maps_home_work</mat-icon>
+          Rooms
+        </mat-card-title>
+        <mat-card-subtitle>Plus récentes en premier</mat-card-subtitle>
+      </mat-card-header>
+
+      <mat-card-content>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <mat-button-toggle-group
+            [value]="stateFilter()"
+            (change)="stateFilter.set($any($event.value))"
+            appearance="legacy"
+            aria-label="Filtrer par état">
+            <mat-button-toggle value="all">
+              <mat-icon>all_inclusive</mat-icon> Toutes
+            </mat-button-toggle>
+            <mat-button-toggle value="running">
+              <mat-icon>play_arrow</mat-icon> En cours
+            </mat-button-toggle>
+            <mat-button-toggle value="idle">
+              <mat-icon>pause</mat-icon> À l’arrêt
+            </mat-button-toggle>
+          </mat-button-toggle-group>
+
+          <span class="spacer"></span>
+
+          <button mat-stroked-button (click)="toggleAutoRefresh()" aria-label="Basculer l'auto-rafraîchissement">
+            <mat-icon>{{ autoRefresh() ? 'sync' : 'sync_disabled' }}</mat-icon>
+            {{ autoRefresh() ? 'Auto' : 'Manuel' }}
+          </button>
+        </div>
+
+        <mat-divider class="div"></mat-divider>
+
+        <!-- Loading / Error placés au bon niveau (pas dans un item) -->
+        <mat-progress-bar *ngIf="loading()" mode="indeterminate"></mat-progress-bar>
+        <div class="error" *ngIf="error()">
+          <mat-icon>error_outline</mat-icon>
+          <span>Erreur de chargement — réessaye</span>
+        </div>
+
+        <!-- Liste -->
+        <mat-list class="rooms-list">
+          @for (r of (filteredRooms$ | async); track r.id) {
+            <mat-list-item class="room-item" lines="3">
+              <mat-icon matListItemIcon aria-hidden="true">meeting_room</mat-icon>
+
+              <!-- Ligne 1 -->
+              <div matListItemTitle class="row-top">
+                <a class="room-id mono" [routerLink]="['/room', r.id]" matTooltip="Ouvrir la room">#{{ r.id }}</a>
+
+                <span class="spacer"></span>
+
+                <mat-chip-set class="chips">
+                  <mat-chip
+                    [color]="r.state === 'running' ? 'primary' : undefined"
+                    selected
+                    appearance="outlined">
+                    <mat-icon inline>toggle_on</mat-icon>
+                    {{ r.state || '—' }}
+                  </mat-chip>
+                  <mat-chip selected appearance="outlined">
+                    <mat-icon inline>tune</mat-icon>
+                    {{ r.mode || '—' }}
+                  </mat-chip>
+                </mat-chip-set>
+              </div>
+
+              <!-- Ligne 2 : date & activité -->
+              <div matListItemLine class="row-meta">
+                <mat-icon inline class="meta-ic">schedule</mat-icon>
+                @if (r.lastEventAt) {
+                  <span class="when mono">{{ toMs(r.lastEventAt) | date:'short' }}</span>
+                } @else if (r.updatedAt) {
+                  <span class="when mono">{{ toMs(r.updatedAt) | date:'short' }}</span>
+                } @else {
+                  <span class="when mono">—</span>
+                }
+
+                <span class="spacer"></span>
+
+                <div class="activity" matTooltip="Fraîcheur de l’activité">
+                  <span class="dot" [ngClass]="activityClass(r)"></span>
+                  <span class="when mono">
+                    @if (r.lastEventAt) { {{ toMs(r.lastEventAt) | date:'shortTime' }} }
+                    @else if (r.updatedAt) { {{ toMs(r.updatedAt) | date:'shortTime' }} }
+                    @else { — }
+                  </span>
+                </div>
+
+                <!-- Actions à droite de la ligne -->
+                <div class="room-actions">
+                  <button mat-icon-button [routerLink]="['/room', r.id]" matTooltip="Ouvrir">
+                    <mat-icon>open_in_new</mat-icon>
+                  </button>
+                  <button mat-icon-button (click)="copy(r.id)" matTooltip="Copier l’ID">
+                    <mat-icon>content_copy</mat-icon>
+                  </button>
+                </div>
+              </div>
+
+              <mat-divider inset></mat-divider>
+            </mat-list-item>
+          } @empty {
+            <div class="empty">
+              <mat-icon>hourglass_empty</mat-icon>
+              <span>Aucune room pour l’instant</span>
+            </div>
+          }
+        </mat-list>
+      </mat-card-content>
+
+      <mat-card-actions align="end">
+        <button mat-stroked-button color="primary" routerLink="/rooms">
+          <mat-icon>open_in_new</mat-icon>
+          Voir toutes les rooms
+        </button>
+      </mat-card-actions>
+    </mat-card>
+
+  </div>
+</section>

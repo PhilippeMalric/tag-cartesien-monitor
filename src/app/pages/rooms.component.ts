@@ -6,6 +6,8 @@ import { map, shareReplay } from 'rxjs';
 import { MonitorReadService } from '../services/monitor-read.service';
 import { RoomDoc } from '../models/monitor.models';
 
+export type RoomItem = RoomDoc & { id: string; lastEventAt?: unknown };
+
 @Component({
   selector: 'app-rooms',
   standalone: true,
@@ -100,7 +102,7 @@ export class RoomsComponent {
   );
 
   // helpers
-  private whenMs(r: RoomDoc): number {
+  private whenMs(r: RoomItem): number {
     const a = this.toMs(r?.lastEventAt);
     const b = this.toMs(r?.updatedAt);
     return Math.max(a, b, 0);

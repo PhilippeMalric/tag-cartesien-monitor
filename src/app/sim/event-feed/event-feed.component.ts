@@ -45,6 +45,26 @@ export class EventFeedComponent implements OnInit, OnDestroy {
     this.stopListening();
   }
 
+
+ // Remplace tes helpers par ceux-ci (signatures plus souples)
+trackById = (i: number, ev: unknown): string | number => (ev as any)?.id ?? i;
+
+hasXY(ev: unknown): boolean {
+  const e = ev as any;
+  const x = e?.x ?? e?.payload?.x;
+  const y = e?.y ?? e?.payload?.y;
+  return Number.isFinite(x) && Number.isFinite(y);
+}
+
+getX(ev: unknown): number | null {
+  const v = (ev as any)?.x ?? (ev as any)?.payload?.x;
+  return Number.isFinite(v) ? (v as number) : null;
+}
+
+getY(ev: unknown): number | null {
+  const v = (ev as any)?.y ?? (ev as any)?.payload?.y;
+  return Number.isFinite(v) ? (v as number) : null;
+}
   private startListening(): void {
     this.stopListening();
 
@@ -93,7 +113,6 @@ export class EventFeedComponent implements OnInit, OnDestroy {
     }
   }
 
-  trackById = (_: number, ev: EventItem) => ev.id;
 
   iconFor(type?: string): string {
     switch ((type || '').toLowerCase()) {
@@ -132,13 +151,30 @@ export class EventFeedComponent implements OnInit, OnDestroy {
     return Number.isFinite(t) ? (t as number) : null;
   }
 
-  /** Coordonnées présentes et valides */
-  hasXY(ev: any): boolean {
-    return Number.isFinite(ev?.x) && Number.isFinite(ev?.y);
+  // Dans la classe EventsComponent
+  dateMs(ev: unknown): number {
+    const e: any = ev as any;
+    const v = e?.ts ?? e?.at ?? e?.createdAt ?? null;
+    if (!v) return 0;
+
+    // Firestore Timestamp
+    if (typeof v?.toMillis === 'function') return v.toMillis();
+
+    // Date native
+    if (v instanceof Date) return v.getTime?.() ?? 0;
+
+    // number (ms)
+    if (typeof v === 'number') return v;
+
+    // string ISO
+    const t = new Date(v as any).getTime?.();
+    return Number.isFinite(t) ? (t as number) : 0;
   }
+
 }
 
 function rndInt(min: number, max: number): number {
   // bornes inclusives [-50, 50]
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
+

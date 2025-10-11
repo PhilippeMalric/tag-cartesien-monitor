@@ -15,6 +15,7 @@ import { combineLatest, firstValueFrom, Observable } from 'rxjs';
 
 // Carte temps réel (présente sur la page)
 import { RoomLiveMapComponent } from './room-live-map/room-live-map.component';
+import { RoomItem } from '../rooms.component';
 
 type Bot = { id: string; x?: number; y?: number; displayName?: string; random?: boolean };
 type PositionItem = { id: string; isBot: boolean; x: number; y: number };
@@ -40,7 +41,7 @@ export class RoomDetailComponent {
   readonly roomId: string = this.route.snapshot.paramMap.get('id')!;
 
   // Room seule
-  readonly room$: Observable<RoomDoc> = this.read.room$(this.roomId) as any;
+  readonly room$: Observable<RoomItem> = this.read.room$(this.roomId) as any;
 
   // Players de la room (séparé)
   readonly players$ = this.read.players$(this.roomId);
@@ -145,8 +146,8 @@ export class RoomDetailComponent {
   }
 
   async confirmDelete(): Promise<void> {
-    const room = await firstValueFrom(this.room$);
-    const roomId = (room as RoomDoc | RoomVM | undefined)?.id;
+    // ← récupère l'id depuis l'URL, pas depuis room
+    const roomId = (this.route.snapshot.paramMap.get('id') ?? '').trim();
     if (!roomId) return;
 
     const ok = window.confirm(

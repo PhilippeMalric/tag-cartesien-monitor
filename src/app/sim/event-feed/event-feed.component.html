@@ -3,7 +3,6 @@
   <mat-card-header>
     <mat-card-title class="title-wrap">
       {{ title() }}
-      <!-- compteur d'events -->
       @if (events().length > 0) {
         <mat-chip class="count-chip" color="primary" selected>
           <mat-icon inline>list_alt</mat-icon>
@@ -21,7 +20,6 @@
   </mat-card-header>
 
   <mat-card-content>
-
     <!-- EMPTY STATE -->
     @if (events().length === 0) {
       <div class="empty">
@@ -35,7 +33,6 @@
       <mat-list>
         @for (ev of events(); track trackById) {
           <mat-list-item class="ev-item" lines="3">
-
             <!-- Icône type -->
             <mat-icon
               matListItemIcon
@@ -68,17 +65,19 @@
               </div>
             }
 
-            <!-- Ligne 3 : Coordonnées sous forme de chips -->
+            <!-- Ligne 3 : Coordonnées (safe via helpers) -->
             @if (hasXY(ev)) {
               <div matListItemLine class="meta-row">
                 <mat-chip-set>
                   <mat-chip>
                     <mat-icon inline>my_location</mat-icon>
-                    x: <span class="mono" style="margin-left:4px">{{ ev.x }}</span>
+                    x:
+                    <span class="mono" style="margin-left:4px">{{ getX(ev) }}</span>
                   </mat-chip>
                   <mat-chip>
                     <mat-icon inline>my_location</mat-icon>
-                    y: <span class="mono" style="margin-left:4px">{{ ev.y }}</span>
+                    y:
+                    <span class="mono" style="margin-left:4px">{{ getY(ev) }}</span>
                   </mat-chip>
                 </mat-chip-set>
               </div>
@@ -97,6 +96,5 @@
         </button>
       </div>
     }
-
   </mat-card-content>
 </mat-card>
