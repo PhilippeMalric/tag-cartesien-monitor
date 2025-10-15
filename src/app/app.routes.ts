@@ -6,7 +6,7 @@ export const routes: Routes = [
 
   {
     path: 'rooms',
-    loadComponent: () => import('./pages/rooms.component').then(m => m.RoomsComponent),
+    loadComponent: () => import('./pages/rooms/rooms.component').then(m => m.RoomsComponent),
     canActivate: [adminGuard]
   },
   {

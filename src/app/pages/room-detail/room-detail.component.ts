@@ -15,7 +15,7 @@ import { combineLatest, firstValueFrom, Observable } from 'rxjs';
 
 // Carte temps réel (présente sur la page)
 import { RoomLiveMapComponent } from './room-live-map/room-live-map.component';
-import { RoomItem } from '../rooms.component';
+import { RoomItem } from '../rooms/rooms.component';
 
 type Bot = { id: string; x?: number; y?: number; displayName?: string; random?: boolean };
 type PositionItem = { id: string; isBot: boolean; x: number; y: number };

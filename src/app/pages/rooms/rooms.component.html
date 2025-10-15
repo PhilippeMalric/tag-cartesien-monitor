@@ -1,0 +1,69 @@
+<mat-toolbar color="primary" class="ef-toolbar" role="banner">
+  <span>Rooms</span>
+  <span class="spacer"></span>
+
+  @if (stats$ | async; as s) {
+    <mat-chip-set class="summary-chips" aria-label="Rooms summary">
+      <mat-chip appearance="outlined" selected>
+        running: {{ s.running }}
+      </mat-chip>
+      <mat-chip appearance="outlined" selected>
+        idle: {{ s.idle }}
+      </mat-chip>
+      <mat-chip appearance="outlined" selected>
+        other: {{ s.other }}
+      </mat-chip>
+      <mat-chip appearance="outlined">
+        total: {{ s.total }}
+      </mat-chip>
+    </mat-chip-set>
+
+    <button mat-raised-button color="warn"
+            (click)="deleteAllRooms()"
+            [disabled]="busy() || s.total === 0">
+      <mat-icon>delete_forever</mat-icon>
+      Supprimer toutes les rooms
+    </button>
+  }
+</mat-toolbar>
+
+@if (sortedRooms$ | async; as rooms) {
+  @if (rooms.length === 0) {
+    <div class="empty">
+      <mat-icon>meeting_room</mat-icon>
+      <div>Aucune room pour l’instant.</div>
+    </div>
+  } @else {
+    <div class="rooms">
+      @for (r of rooms; track r.id) {
+        <mat-card class="room-card" appearance="outlined">
+          <mat-card-header>
+            <mat-card-title>
+              <a class="id mono" [routerLink]="['/room', r.id]">#{{ r.id }}</a>
+            </mat-card-title>
+            <mat-card-subtitle>
+              status: <strong>{{ r.state || '—' }}</strong>
+              <span class="sep">—</span>
+              mode: {{ r.mode || '—' }}
+            </mat-card-subtitle>
+          </mat-card-header>
+
+          <mat-card-content>
+            @if (r.lastEventAt) {
+              <div class="meta">maj: {{ toMs(r.lastEventAt) | date:'short' }}</div>
+            } @else if (r.updatedAt) {
+              <div class="meta">maj: {{ toMs(r.updatedAt) | date:'short' }}</div>
+            } @else {
+              <div class="meta">maj: —</div>
+            }
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+} @else {
+  <div class="loading">
+    <mat-progress-spinner mode="indeterminate" diameter="28"></mat-progress-spinner>
+    <div>Chargement…</div>
+  </div>
+}

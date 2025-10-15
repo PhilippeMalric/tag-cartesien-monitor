@@ -12,7 +12,7 @@ import { map, shareReplay } from 'rxjs/operators';
 
 import type { RoomDoc, PlayerDoc, EventItem, Role, Position } from '@tag/types';
 import type { DailyStats } from '../models/monitor.models';
-import { RoomItem } from '../pages/rooms.component';
+import { RoomItem } from '../pages/rooms/rooms.component';
 
 // ---------- Types locaux (streams + DTO joueur avec uid injecté) ----------
 type RoomWithId = RoomDoc & { id: string };

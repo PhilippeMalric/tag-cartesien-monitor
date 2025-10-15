@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
-import { AsyncPipe, DatePipe } from '@angular/common';
+import { AsyncPipe, DatePipe, NgClass } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import { MonitorReadService } from '../../services/monitor-read.service';
@@ -28,7 +28,7 @@ import { toObservable } from '@angular/core/rxjs-interop';
     // Material
     MatCardModule, MatListModule, MatIconModule,
     MatChipsModule, MatDividerModule, MatButtonModule, MatTooltipModule,
-    MatProgressBarModule, MatButtonToggleModule,
+    MatProgressBarModule, MatButtonToggleModule,NgClass
   ],
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.scss'],
