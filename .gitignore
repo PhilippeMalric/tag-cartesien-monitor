@@ -31,7 +31,7 @@ yarn-error.log
 # Miscellaneous
 /.angular/cache
 .sass-cache/
- /connect.lock
+/connect.lock
 /coverage
 /libpeerconnection.log
 testem.log
@@ -45,7 +45,20 @@ Thumbs.db
 # Ignore tout le dossier d'environnement (quel que soit l'OS)
 src/environnement/
 
-
+# Firebase Functions build & deps
 functions/node_modules/
-
 functions/lib/
+
+# ----- SERVICE ACCOUNTS & SECRETS (IMPORTANT) -----
+# Ignore toutes les clés et secrets locaux
+scripts/secrets/
+scripts/secrets/**
+
+# (optionnel) autoriser un README explicatif dans ce dossier
+!scripts/secrets/README.md
+
+# Motifs génériques de clés de service (défense en profondeur)
+**/*-firebase-adminsdk-*.json
+**/service-account*.json
+**/*service*account*.json
+**/*credentials*.json

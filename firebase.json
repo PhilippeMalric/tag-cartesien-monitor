@@ -1,6 +1,6 @@
 {
 "hosting": {
-    "site": "monitor-tag-cartesien",
+    "site": "tag-cartesien-monitor",
     "public": "dist/tag-cartesien-monitor/browser",
     "rewrites": [{ "source": "**", "destination": "/index.html" }]
   },

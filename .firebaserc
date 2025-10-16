@@ -1,0 +1,13 @@
+{
+  "projects": {},
+  "targets": {
+    "tag-cartesien": {
+      "hosting": {
+        "tag-cartesien-monitor": [
+          "tag-cartesien-monitor"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
